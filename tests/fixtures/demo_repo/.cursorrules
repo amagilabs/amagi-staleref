@@ -1,0 +1,2 @@
+React components live in `src/components/` and follow `src/**/*.tsx` naming.
+Read `docs/architecture.md` before changing the data model.

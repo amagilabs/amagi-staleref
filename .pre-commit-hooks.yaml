@@ -1,0 +1,7 @@
+- id: amagi-staleref
+  name: amagi-staleref
+  description: Find stale paths, scripts, commands and env vars in CLAUDE.md, AGENTS.md, .cursorrules and READMEs.
+  entry: amagi-staleref
+  language: python
+  pass_filenames: false
+  always_run: true

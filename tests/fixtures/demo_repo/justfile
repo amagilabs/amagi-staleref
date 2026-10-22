@@ -1,0 +1,8 @@
+default:
+    just --list
+
+build:
+    npm run build
+
+release version:
+    git tag {{version}}

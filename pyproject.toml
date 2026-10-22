@@ -1,0 +1,42 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "amagi-staleref"
+version = "0.1.0"
+description = "Find stale references in CLAUDE.md, AGENTS.md, .cursorrules and READMEs: file paths, npm/make/just/task scripts, python -m modules and env vars that no longer exist in the repo."
+readme = "README.md"
+license = { text = "MIT" }
+authors = [{ name = "AmagiLabs (Amagisolutionsgroup, Inc.)", email = "dev@amagisolutionsgroup.com" }]
+requires-python = ">=3.9"
+keywords = ["claude-code", "agents-md", "claude-md", "cursor", "codex", "linter", "documentation", "pre-commit", "cli"]
+classifiers = [
+  "Programming Language :: Python :: 3",
+  "License :: OSI Approved :: MIT License",
+  "Operating System :: OS Independent",
+  "Environment :: Console",
+  "Topic :: Software Development :: Quality Assurance",
+  "Topic :: Software Development :: Documentation",
+]
+dependencies = ['tomli>=1.1; python_version < "3.11"']
+
+[project.optional-dependencies]
+dev = ["pytest>=7.0"]
+
+[project.scripts]
+amagi-staleref = "amagi_staleref.cli:main"
+
+[project.urls]
+Homepage = "https://github.com/amagilabs/amagi-staleref"
+Organization = "https://github.com/amagilabs"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.amagi-staleref]
+# The test fixtures are deliberately stale; keep them out of a self-scan.
+exclude = ["tests/fixtures/**"]
