@@ -1,6 +1,6 @@
 ---
 name: amagi-staleref
-description: The amagi-staleref CLI checks CLAUDE.md, AGENTS.md, .cursorrules, other agent rule files and READMEs for references that no longer match the repo - file paths and globs that point at nothing, npm/pnpm/yarn/bun scripts, make targets, just recipes and Taskfile tasks that are not defined, python -m modules that are gone, cd into missing folders, and env vars nothing else mentions. Use when the user wants to audit or clean up agent instruction files, asks why an agent keeps running a command that does not exist, has just renamed or moved files and wants to find docs that still point at the old names, or wants a pre-commit hook or CI step that catches stale docs.
+description: The amagi-staleref CLI checks CLAUDE.md, AGENTS.md, .cursorrules, other agent rule files and READMEs for references that no longer match the repo, including file paths and globs that point at nothing, npm/pnpm/yarn/bun scripts, make targets, just recipes and Taskfile tasks that are not defined, python -m modules that are gone, cd into missing folders, and env vars nothing else mentions. Use when the user wants to audit or clean up agent instruction files, asks why an agent keeps running a command that does not exist, has just renamed or moved files and wants to find docs that still point at the old names, or wants a pre-commit hook or CI step that catches stale docs.
 ---
 
 # amagi-staleref
@@ -41,8 +41,8 @@ amagi-staleref --list-rules
 ## What to read afterward
 
 - One block per file with problems: line number, severity, rule ID, message. Path
-  findings often end with a hint such as "a file with that name is at
-  src/app/api/routes.py" or "did you mean 'lint'?". Use the hint to fix the doc.
+  findings often end with a hint, either "a file with that name is at <new path>"
+  or "did you mean 'lint'?". Use the hint to fix the doc.
 - The summary line: references checked, files read, and the error/warning counts.
 - Exit codes: 0 nothing at or above `--fail-on` (default warning), 1 stale
   references found, 2 usage error or no instruction files found.
