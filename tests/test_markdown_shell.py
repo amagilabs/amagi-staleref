@@ -30,7 +30,7 @@ def test_imports_only_when_asked():
 
 
 def test_external_link_text_is_not_a_span():
-    ex = markdown.extract("* [`numpy/globals`](https://github.com/numpy/numpy/blob/main/numpy/_globals.py)\n")
+    ex = markdown.extract("* [`numpy/globals`](https://git.example.com/numpy/numpy/blob/main/numpy/_globals.py)\n")
     assert ex.spans == []
 
 

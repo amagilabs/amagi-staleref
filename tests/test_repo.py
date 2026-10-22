@@ -128,7 +128,7 @@ def test_remote_slugs(make_repo):
     root = make_repo({"README.md": ""})
     os.makedirs(os.path.join(root, ".git"))
     with open(os.path.join(root, ".git", "config"), "w") as fh:
-        fh.write('[remote "origin"]\n\turl = https://github.com/acme/widget.git\n')
+        fh.write('[remote "origin"]\n\turl = https://git.example.com/acme/widget.git\n')
     slugs = Repo(root).remote_slugs()
     assert {"acme/widget", "widget", os.path.basename(root)} <= slugs
 
