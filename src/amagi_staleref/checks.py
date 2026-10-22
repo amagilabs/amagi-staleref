@@ -34,6 +34,24 @@ PLACEHOLDER_SEGMENTS = {
     "foo", "bar", "baz", "qux", "xxx", "xx", "yyy", "zzz", "path", "to", "example", "examples-here",
     "your", "yours", "mine", "something", "somewhere", "whatever", "name", "file", "dir", "folder",
 }
+PLACEHOLDER_WORDS = {"foo", "bar", "baz", "qux", "xxx", "nnn", "yyyy", "todo", "tbd", "specific", "whatever"}
+PLACEHOLDER_LEADS = {"example", "sample", "my", "your", "some", "new", "another", "other", "hello"}
+# Install-layout folders (lib/gstreamer-1.0/, usr/local/bin): about a system, not this repo,
+# unless the repo really has a folder by that name.
+SYSTEM_DIRS = {"lib", "lib64", "bin", "sbin", "usr", "etc", "var", "opt", "share", "include", "tmp",
+               "home", "Library", "Applications", "Contents", "System"}
+# Dotted names that are code, not files: process.env, import.meta.env, os.path ...
+CODE_PREFIX_RE = re.compile(
+    r"^(?:process|import\.meta|Deno|Bun|window|document|globalThis|module|exports|console)\.")
+# Bare dotfiles worth checking. Anything else that starts with a dot (".sha256", ".all",
+# ".test.ts") is a suffix, a method or an extension, not a file.
+DOTFILE_RE = re.compile(
+    r"^\.(?:env|envrc|git\w*|docker\w*|npmrc|nvmrc|yarnrc|pnpm\w*|eslint\w*|prettier\w*|stylelint\w*|babel\w*|"
+    r"editorconfig|browserslistrc|python-version|node-version|ruby-version|tool-versions|terraform\w*|"
+    r"pre-commit[\w-]*|cursor\w*|windsurf\w*|clinerules|claude|codex|vscode|devcontainer|husky|changeset|"
+    r"storybook|circleci|gitlab-ci|travis|mcp|swcrc|lintstagedrc|commitlintrc|markdownlint\w*|yamllint|"
+    r"flake8|pylintrc|coveragerc|pypirc|isort|ruff|mypy|vercel\w*|netlify\w*|firebase\w*|roo\w*|aider\w*|"
+    r"amagi-staleref|justfile|dev\.vars|gemini)(?:\.[\w.-]+)?$")
 BAD_CHARS = set("<>{}$%|^`'\"()*?[],;=!") - set("*?[")
 
 _LINE_SUFFIX = re.compile(r"(?::\d+(?:[-:]\d+)?|#L\d+(?:-L?\d+)?)$")
@@ -43,10 +61,32 @@ def clean_token(tok):
     tok = tok.strip().strip("'\"")
     tok = re.sub(r"::.*$", "", tok)  # pytest node ids: tests/test_x.py::test_y
     tok = _LINE_SUFFIX.sub("", tok)
+    m = re.match(r"^([^#]+\.[A-Za-z0-9]+)#[\w-]+$", tok)  # docs/guide.md#some-heading
+    if m:
+        tok = m.group(1)
     tok = tok.rstrip(".,;:!?)")
     if tok.startswith(".\\"):
         tok = tok.replace("\\", "/")
     return tok
+
+
+def is_placeholder(tok):
+    """path/to/file, your-app/, adr_NNN_title.md, Foo.test.tsx, new-project ..."""
+    low = tok.lower()
+    lowered = [s for s in low.strip("/").split("/") if s not in ("", ".", "..")]
+    if not lowered:
+        return False
+    if "path/to" in low or any(s in PLACEHOLDER_SEGMENTS for s in lowered[:-1]):
+        return True
+    if any(s.startswith(("your-", "your_", "my-", "my_", "my.")) for s in lowered):
+        return True
+    if any(re.fullmatch(r"[x]{3,}|y{4}|[a-z]+-?n+|n{3,}", s) for s in lowered):
+        return True
+    parts = [p for p in re.split(r"[._-]", lowered[-1]) if p]
+    if any(p in PLACEHOLDER_WORDS for p in parts):
+        return True
+    return (bool(parts) and not lowered[-1].startswith(".") and parts[0] in PLACEHOLDER_LEADS
+            and "/" not in tok.strip("/"))
 
 
 def classify(tok):
@@ -60,7 +100,9 @@ def classify(tok):
         return None
     if "..." in tok or "…" in tok or tok in (".", ".."):
         return None
-    if low in TECH_NAMES:
+    if low in TECH_NAMES or CODE_PREFIX_RE.match(tok):
+        return None
+    if not any(c.isalnum() for c in tok):
         return None
     glob = any(c in tok for c in "*?[")
     if glob and "{" in tok:
@@ -69,16 +111,18 @@ def classify(tok):
     elif any(c in BAD_CHARS for c in tok):
         return None
     segments = [s for s in tok.strip("/").split("/") if s not in (".", "..")]
-    if not segments:
+    if not segments or is_placeholder(tok):
         return None
     lowered = [s.lower() for s in segments]
-    if "path/to" in low or any(s in PLACEHOLDER_SEGMENTS for s in lowered[:-1]):
-        return None
-    if any(s.startswith(("your-", "your_", "my-", "my_", "my.")) for s in lowered):
-        return None
-    if any(re.fullmatch(r"[x]{3,}|y{4}|[a-z]+-?n+|n{3,}", s) for s in lowered):
-        return None
+    if BARE_ENV_RE.match(segments[0]) or segments[0] in KNOWN_ENV:
+        return None  # CODEX_HOME/config.toml: a folder named by an env var
     if glob:
+        # A glob is a file pattern when it names an extension (*.tsx, src/**/test_*.py) or ends
+        # in a folder wildcard (src/*, docs/**). Test*, getBy*, *_KEY and */list are identifiers.
+        last = lowered[-1]
+        ext = last.rsplit(".", 1)[1] if "." in last else ""
+        if ext not in KNOWN_EXTS and not ("/" in tok.rstrip("/") and last in ("*", "**")):
+            return None
         return "glob"
     name = lowered[-1]
     ext = name.rsplit(".", 1)[1] if "." in name.lstrip(".") else ""
@@ -86,16 +130,29 @@ def classify(tok):
     if tok.startswith(("./", "../")):
         return "path"
     if "/" in tok.rstrip("/"):
+        if not has_ext and re.search(r"[A-Z_]", segments[-1].rsplit(".", 1)[-1]) and "." in segments[-1][1:]:
+            return None  # mappers/__init__.PRESETS: a Python attribute, not a file
         return "path" if has_ext or tok.endswith("/") else "maybe"
     if tok.endswith("/"):
-        return "path" if re.fullmatch(r"\.?[A-Za-z0-9_][\w.-]*/", tok) else None
+        return None  # a lone "lib/" or "prefix/" in prose is rarely a path in this repo
     if name.startswith("."):
         rest = name[1:]
         if rest in KNOWN_EXTS and rest != "env":
             return None  # ".md" means the extension, not a file
-        return "bare" if re.fullmatch(r"\.[a-z0-9][\w.-]*", name) else None
+        return "bare" if DOTFILE_RE.match(name) else None
     return "bare" if has_ext else None
 
+
+# A missing path on a line like this is usually one the reader is told to create,
+# avoid or rename, or a made-up example. Those lines are not checked for paths.
+HYPOTHETICAL_RE = re.compile(
+    r"(?i)\b(?:never|don't|do not|must not|should not|shouldn't|avoid|instead of|renam(?:e|es|ed|ing)|"
+    r"creat(?:e|es|ed|ing)|new file|will be (?:created|generated|written)|generat(?:e|es|ed|ing)|"
+    r"e\.g\.|for example|formerly|previously|no longer|used to be|(?:git)?ignored|scaffold|upstream|"
+    r"your (?:own )?(?:repo|repository|project)|(?:in|into|from) the [\w.-]+ repo(?:sitory)?\b|port of|"
+    r"(?:like|such as) `|output (?:goes |is written )?(?:to|in)|writes? (?:to|out)|saved? (?:to|in|as))")
+# Lines that explain glob or path matching use made-up paths: "`*.py` matches `src/main.py`".
+PATTERN_TALK_RE = re.compile(r"(?i)\b(?:pattern|patterns|match(?:es|ed)?|denies|allowlist|denylist)\b")
 
 # ------------------------------------------------------------------ env vars
 ENV_PATTERNS = [
@@ -176,6 +233,11 @@ PY_BIN_PACKAGES = {
     "ruff": "ruff", "pytest": "pytest", "mypy": "mypy",
 }
 PY_ALWAYS = {"python", "python3", "pip", "pip3"}
+# "uv run cargo fuzz" runs whatever is on PATH; these are not Python entry points.
+NOT_PYTHON_TOOLS = set("""
+cargo rustc rustup maturin node npm npx pnpm yarn bun deno make just task git docker podman bash sh zsh
+pwsh powershell cmake ninja go java gradle mvn dotnet gh kubectl helm terraform ruby gem bundle
+""".split())
 PYTHONS = re.compile(r"^(?:python(?:\d(?:\.\d+)?)?|py|python\.exe|pypy3?)$")
 CREATE_WORDS = {"create", "new", "init", "startproject", "startapp", "clone", "generate", "scaffold"}
 GENERIC = set("""
@@ -217,6 +279,8 @@ class FileChecker:
         self.findings = []
         self.checked = 0
         self._seen = set()
+        self.env_refs = []  # (line, name), resolved in finish() with one repo-wide search
+        self._ex = None
 
     # ------------------------------------------------------------ plumbing
     def add(self, line, rule, message, ref):
@@ -225,7 +289,9 @@ class FileChecker:
             self._seen.add(key)
             self.findings.append(Finding(self.rel, line, rule, message, ref))
 
-    def run(self, text):
+    def run(self, text, finish=True):
+        """Check one file. With finish=False the caller batches env var lookups
+        across files (repo.prefetch_env) and then calls finish() itself."""
         name = posixpath.basename(self.rel).lower()
         ex = markdown.extract(text, imports=name.startswith(("claude", "gemini")))
         for span in ex.spans:
@@ -236,11 +302,36 @@ class FileChecker:
             self.check_link(link.line, link.text)
         for imp in ex.imports:
             self.check_import(imp.line, imp.text)
+        self._ex = ex
+        return self.finish() if finish else self.findings
+
+    def finish(self):
+        ex = self._ex
+        if self.env_refs:
+            hits = self.repo.env_files({n for _, n in self.env_refs})
+            seen = set()
+            for line, name in self.env_refs:
+                if name in seen or self._doc_local_env(name):
+                    continue
+                seen.add(name)
+                if not hits.get(name, set()) - self.instruction_files:
+                    self.add(line, "SR040", f"env var {name} is not mentioned anywhere else in the repo", name)
+            self.env_refs = []
         self.findings = [
             f for f in self.findings if f.line not in ex.ignored_lines and f.rule not in ex.disabled
         ]
         self.findings.sort(key=lambda f: (f.line, f.rule))
         return self.findings
+
+    def _doc_local_env(self, name):
+        """A shell variable the doc's own script sets or demands: ${APP:?set me}, APP=x ... $APP."""
+        self._line_text(1)
+        text = "\n".join(self._lines)
+        n = re.escape(name)
+        if re.search(r"\$\{" + n + r":?[?=-]", text):
+            return True
+        return bool(re.search(r"(?m)^\s*(?:export\s+)?" + n + r"=", text)) and \
+            bool(re.search(r"\$\{?" + n + r"\b", text))
 
     # ---------------------------------------------------------- path checks
     def _bases(self, cwd):
@@ -257,11 +348,27 @@ class FileChecker:
             return
         bases = self._bases(cwd if cwd is not None else self.doc_dir)
         target = tok[2:] if tok.startswith("./") else tok
+        real = [s for s in target.split("/") if s not in ("", ".", "..")]
+        if real and real[0] in SYSTEM_DIRS and len(real) > 1 and not self.repo.is_dir(real[0]) \
+                and not any(self.repo.is_dir(join(b, real[0])) for b in bases):
+            return  # ../../etc/passwd, lib/gstreamer-1.0/: a system path
+        if kind == "maybe" and len(real) == 2 and (target in self.repo.remote_slugs()):
+            return  # owner/repo
+        if kind in ("glob", "path", "maybe") and not tok.startswith(("./", "../")):
+            first = target.split("/")[0]
+            nested = "/" in target.rstrip("/")
+            needs_dir = nested and (
+                (kind == "glob" and not any(c in first for c in "*?[{"))
+                or (kind != "glob" and (first.startswith(".") or first in SYSTEM_DIRS)))
+            if needs_dir and not any(self.repo.is_dir(join(b, first)) for b in bases):
+                return  # payloads/*.json, .codex/config.toml: about a folder this repo does not have
         if kind == "glob":
             self.checked += 1
             for b in bases:
                 if self.repo.glob(target, b):
                     return
+            if HYPOTHETICAL_RE.search(self._sentence(line)) or PATTERN_TALK_RE.search(self._line_text(line)):
+                return
             if self.repo.is_generated(target) or self.repo.is_ignored(target):
                 return
             self.add(line, "SR003", f"glob '{tok}' matches no files", tok)
@@ -270,10 +377,14 @@ class FileChecker:
             first = target.split("/")[0]
             if not any(self.repo.is_dir(join(b, first)) for b in bases):
                 return  # not a path in this repo (owner/repo, feature/branch, text/html, ...)
+        if HYPOTHETICAL_RE.search(self._sentence(line)) or PATTERN_TALK_RE.search(self._line_text(line)):
+            return
         self.checked += 1
         candidates = [join(b, target) for b in bases]
-        if any(c.startswith("..") and not tok.startswith("../") for c in candidates):
-            candidates = [c for c in candidates if not c.startswith("..")] or candidates
+        candidates = [c for c in candidates if not c.startswith("..")]
+        if not candidates:
+            self.checked -= 1
+            return  # outside the repo, e.g. ../sibling-repo/
         for c in candidates:
             if self.repo.exists(c):
                 return
@@ -281,16 +392,27 @@ class FileChecker:
             if self.repo.is_generated(c) or self.repo.is_ignored(c):
                 return
         if kind == "bare":
-            if self.repo.files_named(posixpath.basename(target.rstrip("/"))):
-                return
+            base = posixpath.basename(target.rstrip("/"))
+            if self.repo.files_named(base) or self.repo._secret_env(base):
+                return  # a real .env is never committed, so it is never "missing"
             self.add(line, "SR002", f"no file named '{tok}' anywhere in the repo{self._hint(target)}", tok)
             return
         if not tok.startswith(("./", "../")) and self.repo.suffix_match(target):
             return
-        self.add(line, rule_path, f"'{tok}' does not exist{self._hint(target)}", tok)
+        self.add(line, rule_path, f"'{tok}' does not exist{self._hint(target, candidates)}", tok)
 
-    def _hint(self, target):
+    def _hint(self, target, candidates=()):
         base = posixpath.basename(target.rstrip("/"))
+        for c in candidates:  # a near-miss next door beats a same-name file across the repo
+            parent = posixpath.dirname(c.rstrip("/"))
+            if not self.repo.is_dir(parent):
+                continue
+            prefix = parent + "/" if parent else ""
+            siblings = sorted({p[len(prefix):].split("/")[0] for p in self.repo.files | self.repo.dirs
+                               if p.startswith(prefix) and p != parent})
+            close = difflib.get_close_matches(base, siblings, n=1, cutoff=0.75)
+            if close:
+                return f"; did you mean {prefix}{close[0]}?"
         same = sorted(self.repo.files_named(base), key=len)
         if same:
             return f"; a file with that name is at {same[0]}"
@@ -311,7 +433,7 @@ class FileChecker:
         full = join(self.doc_dir, target)
         if self.repo.exists(full) or self.repo.is_generated(full) or self.repo.is_ignored(full):
             return
-        self.add(line, "SR005", f"link target '{target}' does not exist{self._hint(target)}", target)
+        self.add(line, "SR005", f"link target '{target}' does not exist{self._hint(target, [full])}", target)
 
     def check_import(self, line, target):
         if target.startswith(("~", "/")):
@@ -331,9 +453,7 @@ class FileChecker:
         if name in KNOWN_ENV or name.startswith(KNOWN_ENV_PREFIXES) or len(name) < 3:
             return
         self.checked += 1
-        if name in self.repo.words(exclude=self.instruction_files):
-            return
-        self.add(line, "SR040", f"env var {name} is not mentioned anywhere else in the repo", name)
+        self.env_refs.append((line, name))
 
     def _env_from_text(self, line, text):
         for rx in ENV_PATTERNS:
@@ -366,12 +486,37 @@ class FileChecker:
             if not found_env:
                 self.check_path(line, text)
             return
-        state = {"cwd": self.doc_dir, "locals": set(), "created": set()}
+        state = {"cwd": self.doc_dir, "locals": set(), "created": set(), "span": True}
         try:
             for cmd in shell.split_commands(text, line):
                 self.check_command(cmd, state, span=True)
         except _Stop:
             pass
+
+    def _line_dirs(self, line, state):
+        """Folders named on the same prose line as a command span: "run `npm run dev`
+        in `ui/dashboard`" means the script lives in ui/dashboard/package.json."""
+        if not state.get("span"):
+            return []
+        out = []
+        for tok in re.findall(r"[\w.@-]+(?:/[\w.@-]+)*/?", self._line_text(line)):
+            tok = norm(clean_token(tok).rstrip("/"))
+            if not tok or tok.startswith(".."):
+                continue
+            for b in (self.doc_dir, ""):
+                d = join(b, tok)
+                if d and d not in out and d in self.repo.dirs:
+                    out.append(d)
+        return out
+
+    def _sentence(self, line):
+        """This line, plus the line before when this one continues the same paragraph."""
+        text = self._line_text(line)
+        prev = self._line_text(line - 1) if line > 1 else ""
+        if prev.strip() and not prev.lstrip().startswith(("#", "```", "~~~", "|")) \
+                and not re.match(r"\s*(?:[-*+]|\d+[.)])\s|\s*[#|]", text):
+            return prev + " " + text
+        return text
 
     def _line_text(self, line):
         if not hasattr(self, "_lines"):
@@ -478,6 +623,8 @@ class FileChecker:
         target = clean_token(pos[0])
         if not target or target[0] in "~/$%" or ":" in target or any(c in target for c in "<>{}*`"):
             raise _Stop()
+        if is_placeholder(target):
+            raise _Stop()
         cur = state["cwd"]
         cand = join(cur, target)
         if cand.startswith(".."):
@@ -485,10 +632,17 @@ class FileChecker:
         if self.repo.is_dir(cand):
             state["cwd"] = cand
             return
+        if cur and self.repo.is_dir(norm(target)):
+            state["cwd"] = norm(target)  # "cd examples/app" in examples/app/README.md: from the root
+            return
+        head, _, tail = norm(target).partition("/")
+        if tail and head in self.repo.remote_slugs() and self.repo.is_dir(tail):
+            state["cwd"] = tail  # "cd litellm/cookbook" right after cloning litellm
+            return
         base = posixpath.basename(target.rstrip("/"))
         if base in state["created"] or norm(target) in state["created"]:
             raise _Stop()
-        if base == posixpath.basename(self.repo.root.replace("\\", "/")):
+        if base in self.repo.remote_slugs():
             state["cwd"] = ""  # "cd <repo-name>" right after cloning it
             return
         if self.repo.is_generated(cand) or self.repo.is_ignored(cand):
@@ -505,6 +659,7 @@ class FileChecker:
         pm = posixpath.basename(argv[0]).lower().removesuffix(".exe").removesuffix(".cmd")
         args = argv[1:]
         cwd = state["cwd"]
+        alt = self._line_dirs(line, state)
         any_ws = False
         positional = []
         i = 0
@@ -543,7 +698,7 @@ class FileChecker:
                 rest = [r for r in rest[1:] if r != "run"]
             if not rest:
                 return
-            self._script(pm, rest[0], line, cwd, any_ws, strict=True, allow_bin=True)
+            self._script(pm, rest[0], line, cwd, any_ws, strict=True, allow_bin=True, alt=alt)
             return
         if sub in ("run", "run-script", "rum", "urn"):
             if len(positional) < 2:
@@ -552,27 +707,30 @@ class FileChecker:
             if pm == "bun" and classify(clean_token(name)) in ("path", "bare", "maybe"):
                 self.check_path(line, name, cwd)
                 return
-            self._script(pm, name, line, cwd, any_ws, strict=True, allow_bin=pm in ("yarn", "bun"))
+            self._script(pm, name, line, cwd, any_ws, strict=True, allow_bin=pm in ("yarn", "bun"), alt=alt)
             return
         if pm == "npm":
             if sub in NPM_LIFECYCLE:
                 self._script(pm, NPM_LIFECYCLE[sub], line, cwd, any_ws, strict=True, allow_bin=False,
-                             start_fallback=sub == "start")
+                             start_fallback=sub == "start", alt=alt)
             return
         builtins = {"pnpm": PNPM_BUILTINS, "yarn": YARN_BUILTINS, "bun": BUN_BUILTINS}[pm]
         if sub in ("test", "t", "start") and pm != "bun":
             name = "start" if sub == "start" else "test"
-            self._script(pm, name, line, cwd, any_ws, strict=True, allow_bin=False, start_fallback=sub == "start")
+            self._script(pm, name, line, cwd, any_ws, strict=True, allow_bin=False, start_fallback=sub == "start", alt=alt)
             return
         if sub in builtins:
             return
         if pm == "bun" and classify(clean_token(sub)) in ("path", "bare", "maybe"):
             self.check_path(line, sub, cwd)
             return
-        self._script(pm, sub, line, cwd, any_ws, strict=False, allow_bin=True)
+        self._script(pm, sub, line, cwd, any_ws, strict=False, allow_bin=True, alt=alt)
 
-    def _script(self, pm, name, line, cwd, any_ws, strict, allow_bin, start_fallback=False):
+    def _script(self, pm, name, line, cwd, any_ws, strict, allow_bin, start_fallback=False, alt=()):
         if "$" in name or "<" in name or "{" in name:
+            return
+        if not name.startswith("@") and ("/" in name or re.search(r"\.[cm]?[jt]sx?$", name)):
+            self.check_path(line, name, cwd=cwd)  # "bun scripts/build.ts" runs a file
             return
         self.checked += 1
         repo = self.repo
@@ -594,7 +752,21 @@ class FileChecker:
             scripts = repo.scripts(pkg)
             if name in scripts:
                 return
+            for d in alt:
+                other = repo.nearest(d, ["package.json"])
+                if other and name in repo.scripts(other):
+                    return
+            up = posixpath.dirname(posixpath.dirname(pkg)) if posixpath.dirname(pkg) else None
+            while up is not None:  # "bun run lint" in packages/x/AGENTS.md often means the root script
+                other = repo.nearest(up, ["package.json"])
+                if not other:
+                    break
+                if name in repo.scripts(other):
+                    return
+                up = posixpath.dirname(posixpath.dirname(other)) if posixpath.dirname(other) else None
             where = pkg
+            if not scripts and any(name in repo.scripts(p) for p in repo.node_packages()):
+                return  # this package.json has no scripts; the doc means another package
         if start_fallback and pkg and repo.is_file(join(posixpath.dirname(pkg), "server.js")):
             return
         if allow_bin and self._node_bin(name, pkg):
@@ -653,11 +825,24 @@ class FileChecker:
             elif a in ("--version", "--help", "-v", "-h"):
                 return
             elif not a.startswith("-") and "=" not in a:
+                if any(c in a for c in "*?[<{$"):
+                    return  # "make examples-*": a family of targets, not one name
                 targets.append(a)
             i += 1
+        alt = []
         if makefile is None:
-            makefile = next((join(cwd, n) for n in ("GNUmakefile", "makefile", "Makefile")
-                             if self.repo.is_file(join(cwd, n))), None)
+            names = ("GNUmakefile", "makefile", "Makefile")
+            makefile = next((join(cwd, n) for n in names if self.repo.is_file(join(cwd, n))), None)
+            if makefile is None and cwd == self.doc_dir and cwd == state["cwd"]:
+                # A doc in a subfolder usually means "run this from the repo root".
+                makefile = self.repo.nearest(cwd, names)
+            alt = [m for d in self._line_dirs(line, state)
+                   for m in (next((join(d, n) for n in names if self.repo.is_file(join(d, n))), None),) if m]
+            if makefile is None and alt:
+                makefile = alt[0]
+            if makefile is None and targets and all(self._defined_below(t) for t in targets):
+                self.checked += len(targets)
+                return  # a monorepo guide: "make test" inside each package folder
             if makefile is None:
                 self.checked += 1
                 self.add(line, "SR021", f"'make' but there is no Makefile in {cwd or '.'}", "make")
@@ -674,9 +859,20 @@ class FileChecker:
                 continue
             if self.repo.exists(join(posixpath.dirname(makefile), t)):
                 continue  # make builds a file that already exists
+            if any(t in self.repo.make_targets(m)[0] or self.repo.make_targets(m)[2] for m in alt):
+                continue
             close = difflib.get_close_matches(t, sorted(defined), n=1, cutoff=0.6)
             hint = f"; did you mean '{close[0]}'?" if close else ""
             self.add(line, "SR020", f"make target '{t}' is not defined in {makefile}{hint}", t)
+
+    def _defined_below(self, target):
+        """True if some Makefile under this doc's folder defines `target`."""
+        for m in self.repo.all_named(("Makefile", "makefile", "GNUmakefile")):
+            if (not self.doc_dir or m.startswith(self.doc_dir + "/")) and not self.repo.is_generated(m):
+                defined, _, dynamic = self.repo.make_targets(m)
+                if target in defined:
+                    return True
+        return False
 
     def cmd_just(self, argv, line, state):
         cwd = state["cwd"]
@@ -874,6 +1070,9 @@ class FileChecker:
                 continue
             if a.startswith("--with"):
                 has_with = True
+            if a in ("-m", "--module"):
+                self.cmd_python(["python"] + rest[i:], line, dict(state, cwd=cwd))
+                return
             if not a.startswith("-"):
                 break
             i += 1
@@ -889,7 +1088,7 @@ class FileChecker:
         if kind in ("path", "bare", "maybe") or tok.endswith(".py"):
             self.check_path(line, x, cwd, kind=kind or "bare")
             return
-        if has_with or "$" in x or "<" in x:
+        if has_with or "$" in x or "<" in x or x in NOT_PYTHON_TOOLS:
             return
         self.checked += 1
         scripts, deps, hatch = self.repo.python_info()

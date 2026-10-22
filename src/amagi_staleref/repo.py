@@ -1,5 +1,6 @@
 """What exists in the repo: files, folders, scripts, targets, recipes, tasks, deps."""
 
+import atexit
 import fnmatch
 import json
 import os
@@ -20,7 +21,7 @@ SKIP_DIRS = {
 }
 # Folders that hold build output or installed packages. A reference into one
 # of these is about something generated, so it is never reported.
-GENERATED_DIRS = SKIP_DIRS | {"out", "bin/Debug", "bin/Release", "obj", "vendor", "site", "_build", "htmlcov", "logs", "tmp"}
+GENERATED_DIRS = SKIP_DIRS | {"out", "bin/Debug", "bin/Release", "obj", "vendor", "site", "_build", "htmlcov", "logs", "tmp", "output", "outputs", "results", "artifacts"}
 
 TEXT_SKIP_EXTS = {
     ".png", ".jpg", ".jpeg", ".gif", ".bmp", ".ico", ".webp", ".pdf", ".zip", ".gz", ".tgz",
@@ -29,6 +30,7 @@ TEXT_SKIP_EXTS = {
     ".lockb", ".parquet", ".npy", ".pkl", ".svgz", ".avif", ".heic", ".psd", ".ai", ".sketch",
 }
 MAX_TEXT_BYTES = 2_000_000
+ENV_TEMPLATE_SUFFIXES = (".example", ".sample", ".template", ".dist", ".defaults", ".tmpl", ".in")
 WORD_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_]+")
 
 
@@ -107,6 +109,23 @@ def canon(name):
     return re.sub(r"[-_.]+", "-", name).lower()
 
 
+def _tool_dependencies(node, depth=0):
+    """Every string in a `dependencies`-style list anywhere under [tool]."""
+    out = set()
+    if depth > 6 or not isinstance(node, dict):
+        return out
+    for key, val in node.items():
+        if key.endswith("dependencies") and isinstance(val, list):
+            out.update(_pep508_name(s) for s in val if isinstance(s, str))
+        elif key.endswith("dependencies") and isinstance(val, dict):
+            for group in val.values():
+                if isinstance(group, list):
+                    out.update(_pep508_name(s) for s in group if isinstance(s, str))
+        elif isinstance(val, dict):
+            out |= _tool_dependencies(val, depth + 1)
+    return out
+
+
 def _load_toml(path):
     try:
         with open(path, "rb") as f:
@@ -125,7 +144,8 @@ class Repo:
         self._by_name = {}
         for f in self.files:
             self._by_name.setdefault(posixpath.basename(f).lower(), []).append(f)
-        self._words = None
+        self._env = None
+        self._ignore_proc = None
         self._gitignore = None
 
     # ---------------------------------------------------------------- listing
@@ -217,6 +237,19 @@ class Repo:
             hits.extend(p for p in self.files | self.dirs if rx.match(p))
         return hits
 
+    @lru_cache(maxsize=1)
+    def remote_slugs(self):
+        """owner/repo names from .git/config remotes, plus the folder name."""
+        out = {posixpath.basename(self.root.replace("\\", "/").rstrip("/"))}
+        try:
+            with open(os.path.join(self.root, ".git", "config"), encoding="utf-8", errors="replace") as fh:
+                for m in re.finditer(r"url\s*=\s*\S*?[:/]([\w.-]+/[\w.-]+?)(?:\.git)?\s*$", fh.read(), re.M):
+                    out.add(m.group(1))
+                    out.add(m.group(1).split("/")[1])
+        except OSError:
+            pass
+        return out
+
     def is_generated(self, rel):
         rel = norm(rel)
         parts = rel.split("/")
@@ -233,14 +266,8 @@ class Repo:
         if not rel or rel.startswith(".."):
             return False
         if self.git:
-            try:
-                res = subprocess.run(
-                    ["git", "-C", self.root, "check-ignore", "-q", "--no-index", rel],
-                    capture_output=True, timeout=30,
-                )
-                return res.returncode == 0
-            except (OSError, subprocess.SubprocessError):
-                return False
+            # "rel/x" catches folder-only patterns such as "build/" for a folder that is not there.
+            return any(self._check_ignore(p) for p in (rel, rel + "/x"))
         if self._gitignore is None:
             self._gitignore = []
             try:
@@ -256,6 +283,42 @@ class Repo:
             if fnmatch.fnmatch(rel, pat) or any(fnmatch.fnmatch(p, pat) for p in parts):
                 return True
         return False
+
+    def _check_ignore(self, rel):
+        """Ask one long-running `git check-ignore --stdin` instead of starting git per path."""
+        if self._ignore_proc is None:
+            try:
+                self._ignore_proc = subprocess.Popen(
+                    ["git", "-C", self.root, "check-ignore", "--stdin", "--no-index", "-n", "-v"],
+                    stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+                    env=dict(os.environ, GIT_FLUSH="1"),
+                )
+                atexit.register(self.close)
+            except OSError:
+                self._ignore_proc = False
+        if self._ignore_proc and self._ignore_proc.poll() is None:
+            try:
+                self._ignore_proc.stdin.write(rel.encode("utf-8") + b"\n")
+                self._ignore_proc.stdin.flush()
+                out = self._ignore_proc.stdout.readline()
+                return bool(out) and not out.startswith(b"::")
+            except OSError:
+                self._ignore_proc = False
+        try:
+            res = subprocess.run(["git", "-C", self.root, "check-ignore", "-q", "--no-index", rel],
+                                 capture_output=True, timeout=30)
+            return res.returncode == 0
+        except (OSError, subprocess.SubprocessError):
+            return False
+
+    def close(self):
+        proc, self._ignore_proc = self._ignore_proc, False
+        if proc:
+            try:
+                proc.stdin.close()
+                proc.wait(timeout=5)
+            except (OSError, subprocess.SubprocessError):
+                proc.kill()
 
     # ------------------------------------------------------------ discovery
     def nearest(self, start, names):
@@ -470,6 +533,7 @@ class Repo:
             uv = tool.get("uv", {}) if isinstance(tool.get("uv"), dict) else {}
             for s in uv.get("dev-dependencies", []) or []:
                 deps.add(_pep508_name(s))
+            deps.update(_tool_dependencies(tool))  # e.g. [tool.hatch.metadata.hooks.*] dependencies
             envs = (tool.get("hatch", {}) or {}).get("envs", {}) if isinstance(tool.get("hatch"), dict) else {}
             for env_name, env in (envs or {}).items():
                 if not isinstance(env, dict):
@@ -499,27 +563,61 @@ class Repo:
         return scripts, deps, hatch
 
     # ------------------------------------------------------------- env words
-    def words(self, exclude=()):
-        """Every identifier-like word in the repo's text files, except files in `exclude`."""
-        if self._words is None:
-            skip = set(exclude)
-            words = set()
-            for rel in self.files:
-                if rel in skip or os.path.splitext(rel)[1].lower() in TEXT_SKIP_EXTS:
+    def prefetch_env(self, names):
+        self.env_files(names)
+
+    def env_files(self, names):
+        """Map each name to the repo files that mention it as a whole word.
+
+        Real .env files are skipped (they hold secrets); .env.example and other
+        templates count. Uses one `git grep` for all new names when git is there.
+        """
+        if self._env is None:
+            self._env = {}
+        todo = sorted(n for n in names if n not in self._env)
+        for n in todo:
+            self._env[n] = set()
+        if todo:
+            if not (self.git and self._env_git(todo)):
+                self._env_walk(set(todo))
+        return {n: self._env.get(n, set()) for n in names}
+
+    @staticmethod
+    def _secret_env(rel):
+        base = posixpath.basename(rel).lower()
+        return base.startswith(".env") and not base.endswith(ENV_TEMPLATE_SUFFIXES)
+
+    def _env_git(self, names):
+        for i in range(0, len(names), 400):
+            args = ["grep", "-z", "-I", "-o", "-w", "-F", "--untracked", "--no-color"]
+            for n in names[i:i + 400]:
+                args += ["-e", n]
+            try:
+                res = subprocess.run(["git", "-C", self.root] + args, capture_output=True, timeout=300)
+            except (OSError, subprocess.SubprocessError):
+                return False
+            if res.returncode not in (0, 1):
+                return False
+            for row in res.stdout.decode("utf-8", "replace").splitlines():
+                path, _, word = row.partition("\0")
+                path = path.replace("\\", "/")
+                if word in self._env and not self._secret_env(path):
+                    self._env[word].add(path)
+        return True
+
+    def _env_walk(self, names):
+        for rel in self.files:
+            if os.path.splitext(rel)[1].lower() in TEXT_SKIP_EXTS or self._secret_env(rel):
+                continue
+            path = self.abspath(rel)
+            try:
+                if os.path.getsize(path) > MAX_TEXT_BYTES:
                     continue
-                base = posixpath.basename(rel).lower()
-                if base.startswith(".env") and not base.endswith((".example", ".sample", ".template", ".dist", ".defaults")):
-                    continue  # real .env files hold secrets; templates are fine
-                path = self.abspath(rel)
-                try:
-                    if os.path.getsize(path) > MAX_TEXT_BYTES:
-                        continue
-                    with open(path, "rb") as f:
-                        data = f.read()
-                except OSError:
-                    continue
-                if b"\0" in data[:1024]:
-                    continue
-                words.update(WORD_RE.findall(data.decode("utf-8", "ignore")))
-            self._words = words
-        return self._words
+                with open(path, "rb") as f:
+                    data = f.read()
+            except OSError:
+                continue
+            if b"\0" in data[:1024]:
+                continue
+            for word in names.intersection(WORD_RE.findall(data.decode("utf-8", "ignore"))):
+                self._env[word].add(rel)

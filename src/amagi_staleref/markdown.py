@@ -10,7 +10,8 @@ from dataclasses import dataclass, field
 
 FENCE_RE = re.compile(r"^(\s{0,3})(`{3,}|~{3,})\s*([^\s`]*)")
 LINK_RE = re.compile(r"!?\[(?:[^\]\\]|\\.)*\]\(\s*<?([^)\s>]+)>?(?:\s+(?:\"[^\"]*\"|'[^']*'))?\s*\)")
-REF_LINK_RE = re.compile(r"^\s{0,3}\[[^\]]+\]:\s*<?(\S+?)>?(?:\s+.*)?$")
+EXTERNAL_AFTER_RE = re.compile(r"[^\[\]]*\]\(\s*<?[A-Za-z][A-Za-z0-9+.-]*:")
+REF_LINK_RE = re.compile(r"^\s{0,3}\[(?!\^)[^\]]+\]:\s*<?(\S+?)>?(?:\s+.*)?$")  # not [^footnote]:
 IMPORT_RE = re.compile(r"(?:^|(?<=[\s(\[]))@((?:\.{1,2}/|~/|/)?[A-Za-z0-9_][A-Za-z0-9_.\-/]*)")
 DISABLE_RE = re.compile(r"staleref-disable\s+([A-Z0-9 ,]+)")
 IGNORE_MARK = "staleref-ignore"
@@ -66,6 +67,12 @@ def _code_spans(line):
         i = close + len(ticks)
 
 
+def _external_link_text(line, s, e):
+    """True for [`numpy/_globals.py`](https://...): the code names a file in another repo."""
+    before = line[:s]
+    return before.rfind("[") > before.rfind("]") and bool(EXTERNAL_AFTER_RE.match(line, e))
+
+
 def _frontmatter_end(lines):
     if not lines or lines[0].strip() != "---":
         return 0
@@ -117,7 +124,7 @@ def extract(text, imports=False):
         prose = raw
         spans = list(_code_spans(raw))
         for s, e, content in spans:
-            if content.strip():
+            if content.strip() and not _external_link_text(raw, s, e):
                 out.spans.append(Span(no, content.strip()))
         for s, e, _ in reversed(spans):
             prose = prose[:s] + " " * (e - s) + prose[e:]

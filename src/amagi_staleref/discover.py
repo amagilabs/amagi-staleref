@@ -5,8 +5,9 @@ import posixpath
 
 from .repo import glob_to_regex
 
+# Matched case-sensitively: AGENTS.md is an agent file, docs/agents.md is a docs page.
 INSTRUCTION_NAMES = {
-    "claude.md", "claude.local.md", "agents.md", "agent.md", "gemini.md",
+    "CLAUDE.md", "CLAUDE.local.md", "AGENTS.md", "AGENT.md", "GEMINI.md",
     ".cursorrules", ".windsurfrules", ".clinerules", "copilot-instructions.md",
 }
 README_NAMES = {"readme.md", "readme.markdown", "readme.mdx", "readme", "readme.txt"}
@@ -16,9 +17,9 @@ LOCAL_ONLY = ("CLAUDE.local.md", ".cursorrules", ".windsurfrules", ".clinerules"
 
 
 def is_instruction(rel, readme=True):
-    base = posixpath.basename(rel).lower()
-    if base in INSTRUCTION_NAMES:
+    if posixpath.basename(rel) in INSTRUCTION_NAMES:
         return True
+    base = posixpath.basename(rel).lower()
     if readme and base in README_NAMES:
         return True
     if any(rel.startswith(d) or ("/" + d) in rel for d in RULE_DIRS):

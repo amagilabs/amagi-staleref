@@ -8,7 +8,7 @@ from . import __version__, report
 from .checks import FileChecker
 from .discover import find_instruction_files
 from .repo import Repo, _load_toml
-from .rules import RULES, SEVERITY_ORDER
+from .rules import OPTIONAL, RULES, SEVERITY_ORDER
 
 
 def load_config(root):
@@ -29,7 +29,7 @@ def _ids(value):
     return {v.strip().upper() for v in value if v.strip()}
 
 
-def scan(root, files=None, readme=True, include=(), exclude=(), ignore=(), select=()):
+def scan(root, files=None, readme=True, include=(), exclude=(), ignore=(), select=(), enable=()):
     """Scan one repo root. Returns a result dict for the reporters."""
     repo = Repo(root)
     cfg = load_config(repo.root)
@@ -37,16 +37,22 @@ def scan(root, files=None, readme=True, include=(), exclude=(), ignore=(), selec
     exclude = list(exclude) + list(cfg.get("exclude", []))
     ignore = _ids(ignore) | _ids(cfg.get("ignore"))
     select = _ids(select) | _ids(cfg.get("select"))
+    enable = _ids(enable) | _ids(cfg.get("enable")) | select
     if cfg.get("readme") is False:
         readme = False
     all_instr = find_instruction_files(repo, readme=readme, include=include, exclude=exclude)
     targets = files if files is not None else all_instr
     findings, checked = [], 0
     every = set(all_instr) | set(targets)
+    checkers = []
     for rel in targets:
         checker = FileChecker(repo, rel, instruction_files=every)
-        for f in checker.run(repo.read_text(rel)):
-            if f.rule in ignore or (select and f.rule not in select):
+        checker.run(repo.read_text(rel), finish=False)
+        checkers.append(checker)
+    repo.prefetch_env({n for c in checkers for _, n in c.env_refs})
+    for checker in checkers:
+        for f in checker.finish():
+            if f.rule in ignore or (select and f.rule not in select) or (f.rule in OPTIONAL and f.rule not in enable):
                 continue
             findings.append(f)
         checked += checker.checked
@@ -73,6 +79,7 @@ def build_parser():
                    help="skip files matching GLOB (repeatable)")
     p.add_argument("--ignore", default="", metavar="IDS", help="rules to skip, e.g. SR040,SR002")
     p.add_argument("--select", default="", metavar="IDS", help="run only these rules")
+    p.add_argument("--enable", default="", metavar="IDS", help="turn on rules that are off by default (SR002)")
     p.add_argument("--quiet", action="store_true", help="print nothing when nothing is stale")
     p.add_argument("--list-rules", action="store_true", help="print every rule and exit")
     p.add_argument("--version", action="version", version=f"amagi-staleref {__version__}")
@@ -84,7 +91,7 @@ def main(argv=None):
     if args.list_rules:
         print(report.rules_table())
         return 0
-    for rid in _ids(args.ignore) | _ids(args.select):
+    for rid in _ids(args.ignore) | _ids(args.select) | _ids(args.enable):
         if rid not in RULES:
             print(f"amagi-staleref: unknown rule '{rid}' (see --list-rules)", file=sys.stderr)
             return 2
@@ -99,7 +106,7 @@ def main(argv=None):
 
     results = []
     common = dict(readme=not args.no_readme, include=args.include, exclude=args.exclude,
-                  ignore=args.ignore, select=args.select)
+                  ignore=args.ignore, select=args.select, enable=args.enable)
     for d in dirs:
         results.append(scan(d, **common))
     if files:

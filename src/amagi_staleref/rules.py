@@ -8,7 +8,7 @@ SEVERITY_ORDER = {INFO: 0, WARNING: 1, ERROR: 2}
 
 RULES = {
     "SR001": ("path-missing", ERROR, "A file or folder path that does not exist in the repo"),
-    "SR002": ("file-missing", WARNING, "A bare file name (no folder) that matches no file anywhere in the repo"),
+    "SR002": ("file-missing", WARNING, "A bare file name (no folder) that matches no file anywhere in the repo (off unless --enable SR002)"),
     "SR003": ("glob-empty", WARNING, "A glob pattern that matches no files"),
     "SR004": ("import-missing", ERROR, "A CLAUDE.md @-import whose target file does not exist"),
     "SR005": ("link-missing", ERROR, "A relative Markdown link whose target does not exist"),
@@ -27,6 +27,10 @@ RULES = {
     "SR040": ("env-var-unused", WARNING, "An env var that nothing else in the repo mentions"),
     "SR050": ("cd-missing", WARNING, "cd into a folder that does not exist (the rest of that block is skipped)"),
 }
+
+# Off by default: bare file names in prose are often files in other repos, tools or
+# build output, so these rules are noisier. Turn them on with --enable.
+OPTIONAL = {"SR002"}
 
 
 def severity_of(rule_id):
