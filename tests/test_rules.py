@@ -38,6 +38,18 @@ def test_sr001_skips_hypothetical_lines(make_repo):
     assert findings(root) == []
 
 
+def test_sr001_hypothetical_word_carries_only_into_the_same_sentence(make_repo):
+    root = make_repo({"AGENTS.md": (
+        "Create `config/local.yml` with your settings.\n"
+        "See `config/other.yml`.\n"
+        "\n"
+        "Never edit\n"
+        "`src/generated.py` by hand. This lives in\n"
+        "the vendor repo (`pkg/upstream.py`).\n"
+    )})
+    assert findings(root) == [("AGENTS.md", 2, "SR001", "config/other.yml")]
+
+
 def test_sr001_skips_paths_outside_repo_and_system_paths(make_repo):
     root = make_repo({"a/AGENTS.md": "Sibling `../../other-repo/x.py` and `../../etc/passwd`.\n"})
     assert findings(root) == []

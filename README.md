@@ -28,12 +28,12 @@ We ran it on shallow clones of 10 open-source repos that ship agent
 instruction files: codex, gemini-cli, langchain, litellm, openai-agents-python,
 opencode, playwright-mcp, pydantic-ai, the MCP Python SDK and ruff.
 
-- Agent files only (`--no-readme`): 875 references in 169 files, 6
+- Agent files only (`--no-readme`): 879 references in 169 files, 6
   findings. We checked all 6 by hand and each one is real. Three are litellm
   AGENTS.md files that name test folders that are gone. The other three are
   in a pydantic-ai AGENTS.md that still points at test files from before they
   moved into tests/clai2.
-- Agent files plus READMEs (the default): 2,996 references in 662 files,
+- Agent files plus READMEs (the default): 3,012 references in 662 files,
   37 findings. We confirmed 19 by hand as files, links or recipes that moved
   or were renamed. The rest include output files the docs describe, paths
   inside another repo that a tutorial mounts, and a few we could not settle

@@ -510,12 +510,16 @@ class FileChecker:
         return out
 
     def _sentence(self, line):
-        """This line, plus the line before when this one continues the same paragraph."""
+        """This line, plus the unfinished sentence on the line before when this one
+        continues it: "Never edit\\n`src/gen.py` by hand." is one sentence, but
+        "Create `a.yml`.\\nSee `b.yml`." is two."""
         text = self._line_text(line)
         prev = self._line_text(line - 1) if line > 1 else ""
         if prev.strip() and not prev.lstrip().startswith(("#", "```", "~~~", "|")) \
                 and not re.match(r"\s*(?:[-*+]|\d+[.)])\s|\s*[#|]", text):
-            return prev + " " + text
+            tail = re.split(r"[.!?:][`*_)\"']*\s+", markdown.HTML_COMMENT_RE.sub("", prev).rstrip() + " ")[-1]
+            if tail.strip():
+                return tail.strip() + " " + text
         return text
 
     def _line_text(self, line):
