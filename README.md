@@ -247,6 +247,56 @@ fixes what it finds.
 - Bare file names in prose (SR002) are off by default, because docs often
   name files that belong to other tools.
 
+## Development
+
+Clone the repo and install it in editable mode with the `dev` extra, which
+brings in pytest and ruff:
+
+```sh
+git clone https://github.com/amagilabs/amagi-staleref.git
+cd amagi-staleref
+python -m venv .venv
+source .venv/bin/activate    # Windows: .venv\Scripts\activate
+pip install -e ".[dev]"
+```
+
+Run the tests:
+
+```sh
+pytest -q
+```
+
+Run the linter. Its settings are under `[tool.ruff]` in `pyproject.toml`:
+
+```sh
+ruff check .
+```
+
+CI runs `pytest -q`, `ruff check .` and `amagi-staleref --format github` on
+Python 3.9, 3.12 and 3.13, so run all three before you push. The last one
+scans this repo's own README.
+
+### The pre-commit hook
+
+`.pre-commit-hooks.yaml` is what lets other repos use amagi-staleref as a
+hook (see [Use it as a pre-commit hook](#use-it-as-a-pre-commit-hook)). When a
+project's `.pre-commit-config.yaml` points at this repo, pre-commit clones it
+at the given `rev`, installs the package into its own virtualenv
+(`language: python`) and runs the `amagi-staleref` command. With
+`pass_filenames: false` and `always_run: true` it scans the whole repo on
+every commit, even when no Markdown file is staged.
+
+To try a change to the hook before you tag a release, run it from another
+git repo against your local clone:
+
+```sh
+pip install pre-commit
+pre-commit try-repo path/to/amagi-staleref amagi-staleref --all-files
+```
+
+Users pin the hook with `rev`, so a change reaches them only after you push a
+new tag and they run `pre-commit autoupdate`.
+
 ## Related AmagiLabs projects
 
 - [amagi-skill-lint](https://github.com/amagilabs/amagi-skill-lint): checks
