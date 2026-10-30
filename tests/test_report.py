@@ -25,7 +25,8 @@ def test_text_nothing_stale():
 
 
 def test_text_singular_and_plural():
-    assert report.text(result(files=["CLAUDE.md"], checked=1)).startswith("Checked 1 reference in 1 file.")
+    out = report.text(result(files=["CLAUDE.md"], checked=1))
+    assert out.startswith("Checked 1 reference in 1 file.")
     out = report.text(result(files=["A.md", "B.md"], checked=0))
     assert out.startswith("Checked 0 references in 2 files.")
 
@@ -106,7 +107,8 @@ def test_as_json_shape():
 
 def test_as_json_empty():
     data = json.loads(report.as_json(result(files=[], checked=0)))
-    assert data == {"files": [], "checked": 0, "summary": {"error": 0, "warning": 0, "info": 0}, "findings": []}
+    assert data == {"files": [], "checked": 0,
+                    "summary": {"error": 0, "warning": 0, "info": 0}, "findings": []}
 
 
 def test_as_json_is_indented_and_keeps_order():
@@ -127,8 +129,10 @@ def test_github_annotation_levels(monkeypatch):
     monkeypatch.setitem(RULES, "SR999", ("test-info", "info", "test rule"))
     info = Finding("AGENTS.md", 4, "SR999", "fyi", "x")
     lines = report.github(result([ERR, WARN, info], checked=3)).splitlines()
-    assert lines[0] == "::error file=CLAUDE.md,line=3,title=SR001 path-missing::src/gone.py does not exist"
-    assert lines[1] == "::warning file=CLAUDE.md,line=12,title=SR040 env-var-unused::MY_VAR is not used anywhere else"
+    assert lines[0] == ("::error file=CLAUDE.md,line=3,title=SR001 path-missing"
+                        "::src/gone.py does not exist")
+    assert lines[1] == ("::warning file=CLAUDE.md,line=12,title=SR040 env-var-unused"
+                        "::MY_VAR is not used anywhere else")
     assert lines[2] == "::notice file=AGENTS.md,line=4,title=SR999 test-info::fyi"
 
 

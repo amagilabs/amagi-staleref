@@ -3,7 +3,12 @@ import os
 import pytest
 
 from amagi_staleref.discover import (
-    INSTRUCTION_NAMES, LOCAL_ONLY, README_NAMES, RULE_DIRS, find_instruction_files, is_instruction,
+    INSTRUCTION_NAMES,
+    LOCAL_ONLY,
+    README_NAMES,
+    RULE_DIRS,
+    find_instruction_files,
+    is_instruction,
 )
 from amagi_staleref.repo import Repo
 
@@ -17,12 +22,14 @@ def test_agent_file_names_at_root_and_nested(name):
     assert is_instruction(f"packages/web/{name}")
 
 
-@pytest.mark.parametrize("rel", ["agents.md", "docs/agents.md", "claude.md", "Claude.md", "AGENTS.MD"])
+@pytest.mark.parametrize("rel", ["agents.md", "docs/agents.md", "claude.md", "Claude.md",
+                                 "AGENTS.MD"])
 def test_agent_file_names_are_case_sensitive(rel):
     assert not is_instruction(rel)
 
 
-@pytest.mark.parametrize("rel", ["README.md", "readme.md", "ReadMe.markdown", "docs/README.mdx", "README", "pkg/readme.txt"])
+@pytest.mark.parametrize("rel", ["README.md", "readme.md", "ReadMe.markdown", "docs/README.mdx",
+                                 "README", "pkg/readme.txt"])
 def test_readmes_case_insensitive(rel):
     assert is_instruction(rel)
     assert not is_instruction(rel, readme=False)
@@ -32,7 +39,8 @@ def test_readme_flag_does_not_affect_agent_files():
     assert is_instruction("CLAUDE.md", readme=False)
 
 
-@pytest.mark.parametrize("rel", ["README.rst", "readme.html", "README.md.bak", "notes/README-old.md", "CHANGELOG.md"])
+@pytest.mark.parametrize("rel", ["README.rst", "readme.html", "README.md.bak",
+                                 "notes/README-old.md", "CHANGELOG.md"])
 def test_non_matching_names(rel):
     assert not is_instruction(rel)
 
@@ -93,7 +101,8 @@ def test_find_without_readmes(tree):
 
 
 def test_find_include_globs(tree):
-    repo = tree({"CLAUDE.md": "x", "docs/guide.md": "x", "docs/deep/more.md": "x", "docs/img.png": "x"})
+    repo = tree({"CLAUDE.md": "x", "docs/guide.md": "x", "docs/deep/more.md": "x",
+                 "docs/img.png": "x"})
     got = find_instruction_files(repo, include=["docs/**/*.md"])
     assert got == ["CLAUDE.md", "docs/guide.md", "docs/deep/more.md"]
 
@@ -105,7 +114,8 @@ def test_find_include_strips_slashes(tree):
 
 def test_find_exclude_wins_over_default_and_include(tree):
     repo = tree({"CLAUDE.md": "x", "vendor/lib/README.md": "x", "docs/guide.md": "x"})
-    got = find_instruction_files(repo, include=["docs/*.md"], exclude=["vendor/**", "docs/guide.md"])
+    got = find_instruction_files(repo, include=["docs/*.md"],
+                                 exclude=["vendor/**", "docs/guide.md"])
     assert got == ["CLAUDE.md"]
 
 
