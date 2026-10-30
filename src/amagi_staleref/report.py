@@ -68,7 +68,8 @@ def github(result):
     for f in result["findings"]:
         level = {"error": "error", "warning": "warning", "info": "notice"}[f.severity]
         out.append(
-            f"::{level} file={f.file},line={f.line},title={f.rule} {slug_of(f.rule)}::{_gh_escape(f.message)}"
+            f"::{level} file={f.file},line={f.line},title={f.rule} {slug_of(f.rule)}"
+            f"::{_gh_escape(f.message)}"
         )
     c = _counts(result["findings"])
     out.append(f"amagi-staleref: {result['checked']} references in {len(result['files'])} files, "

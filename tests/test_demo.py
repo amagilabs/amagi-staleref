@@ -26,7 +26,7 @@ CLAUDE.md
     23  warning  SR040  env var CACHE_URL is not mentioned anywhere else in the repo
 
 Checked 19 references in 3 files. 12 stale: 8 errors, 4 warnings.
-"""
+"""  # noqa: E501 - verbatim CLI output
 
 
 def test_demo_text_output(capsys):
@@ -49,7 +49,8 @@ def test_demo_json(capsys):
 def test_demo_github(capsys):
     assert main([DEMO, "--format", "github"]) == 1
     out = capsys.readouterr().out.splitlines()
-    assert out[0] == "::error file=.cursorrules,line=1,title=SR001 path-missing::'src/components/' does not exist"
+    assert out[0] == ("::error file=.cursorrules,line=1,title=SR001 path-missing"
+                      "::'src/components/' does not exist")
     assert out[1].startswith("::warning file=.cursorrules,line=1,title=SR003 glob-empty::")
     assert out[-1] == "amagi-staleref: 19 references in 3 files, 8 errors, 4 warnings"
     assert len(out) == 13

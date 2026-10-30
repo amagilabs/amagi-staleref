@@ -13,4 +13,5 @@ jobs:
           python-version: ${{ matrix.python-version }}
       - run: pip install -e ".[dev]"
       - run: pytest -q
+      - run: ruff check .
       - run: amagi-staleref --format github

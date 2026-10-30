@@ -70,7 +70,8 @@ def argvs(lines, lang="bash"):
 
 def test_split_operators_and_redirects():
     cmds = shell.split_commands("cd app && npm ci 2>/dev/null | tee log.txt; make test", 3)
-    assert [c.argv for c in cmds] == [["cd", "app"], ["npm", "ci"], ["tee", "log.txt"], ["make", "test"]]
+    assert [c.argv for c in cmds] == [["cd", "app"], ["npm", "ci"], ["tee", "log.txt"],
+                                      ["make", "test"]]
     assert all(c.line == 3 for c in cmds)
 
 
