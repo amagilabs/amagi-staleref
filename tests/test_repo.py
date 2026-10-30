@@ -145,3 +145,12 @@ def test_glob_helpers():
     rx = glob_to_regex("src/**/*.py")
     assert rx.match("src/a/b/c.py") and rx.match("src/c.py")
     assert not rx.match("lib/c.py")
+
+
+def test_method_caches_are_per_instance(make_repo):
+    a = Repo(make_repo({"package.json": '{"scripts": {"x": "1"}}'}))
+    b = Repo(make_repo({"package.json": '{"scripts": {"y": "1"}}'}))
+    assert a.package_json("package.json")["scripts"] == {"x": "1"}
+    assert b.package_json("package.json")["scripts"] == {"y": "1"}
+    assert a.package_json("package.json") is a.package_json("package.json")
+    assert a._cache_package_json is not b._cache_package_json

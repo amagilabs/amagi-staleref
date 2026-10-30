@@ -22,7 +22,7 @@ classifiers = [
 dependencies = ['tomli>=1.1; python_version < "3.11"']
 
 [project.optional-dependencies]
-dev = ["pytest>=7.0"]
+dev = ["pytest>=7.0", "ruff>=0.6"]
 
 [project.scripts]
 amagi-staleref = "amagi_staleref.cli:main"
@@ -33,6 +33,18 @@ Organization = "https://github.com/amagilabs"
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py39"
+extend-exclude = ["tests/fixtures"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "UP"]
+
+[tool.ruff.lint.isort]
+# tests import their shared helpers as a top-level module.
+known-local-folder = ["conftest"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

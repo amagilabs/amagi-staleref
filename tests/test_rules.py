@@ -20,7 +20,8 @@ def test_sr001_path_missing(make_repo):
 
 def test_sr001_hint_points_at_moved_file(make_repo):
     root = make_repo({"CLAUDE.md": "See `src/routes.py`.\n", "src/api/routes.py": ""})
-    msg = [f.message for f in __import__("amagi_staleref.cli", fromlist=["scan"]).scan(root)["findings"]]
+    scan = __import__("amagi_staleref.cli", fromlist=["scan"]).scan
+    msg = [f.message for f in scan(root)["findings"]]
     assert msg == ["'src/routes.py' does not exist; a file with that name is at src/api/routes.py"]
 
 
@@ -67,7 +68,8 @@ def test_sr002_found_anywhere(make_repo):
 
 
 def test_sr003_glob_empty(make_repo):
-    root = make_repo({"AGENTS.md": "Tests are `tests/**/test_*.py`; components are `src/**/*.vue`.\n",
+    root = make_repo({"AGENTS.md": "Tests are `tests/**/test_*.py`;"
+                                   " components are `src/**/*.vue`.\n",
                       "tests/unit/test_a.py": "", "src/main.ts": ""})
     assert findings(root) == [("AGENTS.md", 1, "SR003", "src/**/*.vue")]
 
@@ -88,20 +90,23 @@ def test_sr004_only_in_claude_files(make_repo):
 
 
 def test_sr005_link_missing(make_repo):
-    root = make_repo({"docs/README.md": "[ok](guide.md) [gone](setup.md) [web](https://x.dev) [a](#top)\n",
+    root = make_repo({"docs/README.md": "[ok](guide.md) [gone](setup.md)"
+                                        " [web](https://x.dev) [a](#top)\n",
                       "docs/guide.md": ""})
     assert findings(root) == [("docs/README.md", 1, "SR005", "setup.md")]
 
 
 def test_sr010_script_missing_with_hint(make_repo):
-    root = make_repo({"AGENTS.md": "Run `npm run lint:fix` then `npm run build`.\n", "package.json": PKG})
+    root = make_repo({"AGENTS.md": "Run `npm run lint:fix` then `npm run build`.\n",
+                      "package.json": PKG})
     result = __import__("amagi_staleref.cli", fromlist=["scan"]).scan(root)
     assert [(f.rule, f.ref) for f in result["findings"]] == [("SR010", "lint:fix")]
     assert "did you mean 'lint'?" in result["findings"][0].message
 
 
 def test_sr010_builtins_and_bins_are_fine(make_repo):
-    root = make_repo({"AGENTS.md": "```sh\nnpm ci\nnpm test\npnpm install\nnpx eslint .\nyarn eslint\n```\n",
+    root = make_repo({"AGENTS.md": "```sh\nnpm ci\nnpm test\npnpm install\nnpx eslint .\n"
+                                   "yarn eslint\n```\n",
                       "package.json": PKG})
     assert findings(root) == []
 
@@ -126,7 +131,8 @@ MAKEFILE = "include extra.mk\n.PHONY: test lint\ntest:\n\tpytest\nbuild-%:\n\tec
 
 
 def test_sr020_make_target(make_repo):
-    root = make_repo({"AGENTS.md": "```sh\nmake test\nmake build-web\nmake extra\nmake migrate\n```\n",
+    root = make_repo({"AGENTS.md": "```sh\nmake test\nmake build-web\nmake extra\n"
+                                   "make migrate\n```\n",
                       "Makefile": MAKEFILE, "extra.mk": "extra:\n\ttrue\n"})
     assert findings(root) == [("AGENTS.md", 5, "SR020", "migrate")]
 
@@ -137,7 +143,8 @@ def test_sr021_no_makefile(make_repo):
 
 
 def test_make_in_package_folder(make_repo):
-    root = make_repo({"AGENTS.md": "Inside each service run `make test`.\n", "svc/a/Makefile": "test:\n\ttrue\n"})
+    root = make_repo({"AGENTS.md": "Inside each service run `make test`.\n",
+                      "svc/a/Makefile": "test:\n\ttrue\n"})
     assert findings(root) == []
 
 
@@ -148,7 +155,8 @@ def test_make_target_family_is_skipped(make_repo):
 
 def test_sr022_just_recipe(make_repo):
     root = make_repo({"AGENTS.md": "```sh\njust test\njust t\njust ui::dev\njust deploy\n```\n",
-                      "justfile": "set shell := [\"bash\"]\nalias t := test\nmod ui\n@test arg='x':\n  echo\n"})
+                      "justfile": "set shell := [\"bash\"]\nalias t := test\nmod ui\n"
+                                  "@test arg='x':\n  echo\n"})
     assert findings(root) == [("AGENTS.md", 5, "SR022", "deploy")]
 
 
@@ -158,8 +166,10 @@ def test_sr023_no_justfile(make_repo):
 
 
 def test_sr024_task(make_repo):
-    taskfile = "version: '3'\nincludes:\n  docs: ./docs\ntasks:\n  build:\n    aliases: [b]\n    cmds: [go build]\n"
-    root = make_repo({"AGENTS.md": "```sh\ntask build\ntask b\ntask docs:serve\ntask release\n```\n",
+    taskfile = ("version: '3'\nincludes:\n  docs: ./docs\ntasks:\n  build:\n    aliases: [b]\n"
+                "    cmds: [go build]\n")
+    root = make_repo({"AGENTS.md": "```sh\ntask build\ntask b\ntask docs:serve\n"
+                                   "task release\n```\n",
                       "Taskfile.yml": taskfile})
     assert findings(root) == [("AGENTS.md", 5, "SR024", "release")]
 
@@ -171,21 +181,22 @@ def test_sr025_no_taskfile(make_repo):
 
 def test_sr030_sr031_python_m(make_repo):
     root = make_repo({
-        "AGENTS.md": "```sh\npython -m app.server\npython -m app\npython -m app.worker\npython -m pytest\n"
-                     "python -m tool\n```\n",
+        "AGENTS.md": "```sh\npython -m app.server\npython -m app\npython -m app.worker\n"
+                     "python -m pytest\npython -m tool\n```\n",
         "pyproject.toml": "[project]\nname = 'app'\n",
         "src/app/__init__.py": "", "src/app/__main__.py": "", "src/app/server.py": "",
         "src/tool/__init__.py": "",
     })
-    assert findings(root) == [("AGENTS.md", 4, "SR030", "app.worker"), ("AGENTS.md", 6, "SR031", "tool")]
+    assert findings(root) == [("AGENTS.md", 4, "SR030", "app.worker"),
+                              ("AGENTS.md", 6, "SR031", "tool")]
 
 
 def test_sr032_uv_run(make_repo):
-    pyproject = ("[project]\nname = 'app'\ndependencies = ['uvicorn>=0.3']\n[project.scripts]\napp-cli = 'app:main'\n"
-                 "[tool.hatch.metadata.hooks.x]\ndependencies = ['modal']\n")
+    pyproject = ("[project]\nname = 'app'\ndependencies = ['uvicorn>=0.3']\n[project.scripts]\n"
+                 "app-cli = 'app:main'\n[tool.hatch.metadata.hooks.x]\ndependencies = ['modal']\n")
     root = make_repo({
-        "AGENTS.md": "```sh\nuv run app-cli\nuv run uvicorn app:api\nuv run modal deploy\nuv run cargo build\n"
-                     "uv run -m app\nuv run notathing\n```\n",
+        "AGENTS.md": "```sh\nuv run app-cli\nuv run uvicorn app:api\nuv run modal deploy\n"
+                     "uv run cargo build\nuv run -m app\nuv run notathing\n```\n",
         "pyproject.toml": pyproject, "src/app/__init__.py": "", "src/app/__main__.py": "",
     })
     assert findings(root) == [("AGENTS.md", 7, "SR032", "notathing")]
@@ -215,7 +226,8 @@ def test_sr040_ignores_real_env_but_reads_templates(make_repo):
 
 
 def test_sr040_doc_local_shell_variable(make_repo):
-    root = make_repo({"README.md": "```sh\n: \"${APP_BUNDLE:?set it}\"\ncp \"$APP_BUNDLE/x\" .\n```\n"})
+    root = make_repo({"README.md": "```sh\n: \"${APP_BUNDLE:?set it}\"\n"
+                                   "cp \"$APP_BUNDLE/x\" .\n```\n"})
     assert findings(root) == []
 
 
@@ -245,7 +257,8 @@ def test_cd_root_relative_and_clone_name(make_repo):
 
 
 def test_cd_after_mkdir_and_placeholders(make_repo):
-    root = make_repo({"README.md": "```sh\nmkdir demo && cd demo\nmake x\n```\n\n```sh\ncd my-app\n```\n"})
+    root = make_repo({"README.md": "```sh\nmkdir demo && cd demo\nmake x\n```\n\n"
+                                   "```sh\ncd my-app\n```\n"})
     assert findings(root) == []
 
 
@@ -274,8 +287,8 @@ def test_readme_names_are_case_insensitive(make_repo):
 def test_rule_folders_are_scanned(make_repo):
     root = make_repo({".cursor/rules/style.mdc": "x\n", ".github/copilot-instructions.md": "x\n",
                       "CLAUDE.local.md": "x\n"})
-    assert sorted(scan_files(root)) == [".cursor/rules/style.mdc", ".github/copilot-instructions.md",
-                                         "CLAUDE.local.md"]
+    assert sorted(scan_files(root)) == [".cursor/rules/style.mdc",
+                                         ".github/copilot-instructions.md", "CLAUDE.local.md"]
 
 
 def scan_files(root, **kw):

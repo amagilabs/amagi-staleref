@@ -11,7 +11,8 @@ INSTRUCTION_NAMES = {
     ".cursorrules", ".windsurfrules", ".clinerules", "copilot-instructions.md",
 }
 README_NAMES = {"readme.md", "readme.markdown", "readme.mdx", "readme", "readme.txt"}
-RULE_DIRS = (".cursor/rules/", ".clinerules/", ".windsurf/rules/", ".github/instructions/", ".roo/rules/")
+RULE_DIRS = (".cursor/rules/", ".clinerules/", ".windsurf/rules/", ".github/instructions/",
+             ".roo/rules/")
 # Files that are often gitignored but still read by the agent.
 LOCAL_ONLY = ("CLAUDE.local.md", ".cursorrules", ".windsurfrules", ".clinerules")
 

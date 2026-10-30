@@ -7,7 +7,7 @@ import os
 import posixpath
 import re
 import subprocess
-from functools import lru_cache
+from functools import lru_cache, partial, wraps
 
 try:  # Python 3.11+
     import tomllib
@@ -21,7 +21,9 @@ SKIP_DIRS = {
 }
 # Folders that hold build output or installed packages. A reference into one
 # of these is about something generated, so it is never reported.
-GENERATED_DIRS = SKIP_DIRS | {"out", "bin/Debug", "bin/Release", "obj", "vendor", "site", "_build", "htmlcov", "logs", "tmp", "output", "outputs", "results", "artifacts"}
+GENERATED_DIRS = SKIP_DIRS | {"out", "bin/Debug", "bin/Release", "obj", "vendor", "site",
+                              "_build", "htmlcov", "logs", "tmp", "output", "outputs", "results",
+                              "artifacts"}
 
 TEXT_SKIP_EXTS = {
     ".png", ".jpg", ".jpeg", ".gif", ".bmp", ".ico", ".webp", ".pdf", ".zip", ".gz", ".tgz",
@@ -134,6 +136,21 @@ def _load_toml(path):
         return {}
 
 
+def _instance_cache(maxsize):
+    """lru_cache kept on the instance, so it is freed with the Repo (ruff B019)."""
+    def decorate(method):
+        attr = "_cache_" + method.__name__
+
+        @wraps(method)
+        def wrapper(self, *args, **kwargs):
+            cached = self.__dict__.get(attr)
+            if cached is None:
+                cached = self.__dict__[attr] = lru_cache(maxsize=maxsize)(partial(method, self))
+            return cached(*args, **kwargs)
+        return wrapper
+    return decorate
+
+
 class Repo:
     def __init__(self, root):
         self.root = os.path.abspath(root)
@@ -160,7 +177,8 @@ class Repo:
                     self._add(rel)
             return
         for dirpath, dirnames, filenames in os.walk(self.root):
-            dirnames[:] = [d for d in dirnames if d not in SKIP_DIRS and not d.endswith(".egg-info")]
+            dirnames[:] = [d for d in dirnames
+                           if d not in SKIP_DIRS and not d.endswith(".egg-info")]
             rel_dir = os.path.relpath(dirpath, self.root).replace("\\", "/")
             for name in filenames:
                 self._add(name if rel_dir == "." else rel_dir + "/" + name)
@@ -207,7 +225,7 @@ class Repo:
             cur = os.path.join(cur, part)
         return True
 
-    @lru_cache(maxsize=4096)
+    @_instance_cache(maxsize=4096)
     def _listdir(self, path):
         try:
             return frozenset(os.listdir(path))
@@ -230,20 +248,23 @@ class Repo:
                 pat = pat[2:]
             if "/" not in pat.rstrip("/"):
                 rx = glob_to_regex(pat)
-                hits.extend(p for p in self.files | self.dirs if p and rx.match(posixpath.basename(p)))
+                hits.extend(p for p in self.files | self.dirs
+                            if p and rx.match(posixpath.basename(p)))
                 continue
             full = join(base, pat) if not pat.startswith("**") else pat
             rx = glob_to_regex(full)
             hits.extend(p for p in self.files | self.dirs if rx.match(p))
         return hits
 
-    @lru_cache(maxsize=1)
+    @_instance_cache(maxsize=1)
     def remote_slugs(self):
         """owner/repo names from .git/config remotes, plus the folder name."""
         out = {posixpath.basename(self.root.replace("\\", "/").rstrip("/"))}
         try:
-            with open(os.path.join(self.root, ".git", "config"), encoding="utf-8", errors="replace") as fh:
-                for m in re.finditer(r"url\s*=\s*\S*?[:/]([\w.-]+/[\w.-]+?)(?:\.git)?\s*$", fh.read(), re.M):
+            config = os.path.join(self.root, ".git", "config")
+            with open(config, encoding="utf-8", errors="replace") as fh:
+                url_re = r"url\s*=\s*\S*?[:/]([\w.-]+/[\w.-]+?)(?:\.git)?\s*$"
+                for m in re.finditer(url_re, fh.read(), re.M):
                     out.add(m.group(1))
                     out.add(m.group(1).split("/")[1])
         except OSError:
@@ -260,7 +281,7 @@ class Repo:
                 return True
         return False
 
-    @lru_cache(maxsize=4096)
+    @_instance_cache(maxsize=4096)
     def is_ignored(self, rel):
         rel = norm(rel)
         if not rel or rel.startswith(".."):
@@ -271,7 +292,8 @@ class Repo:
         if self._gitignore is None:
             self._gitignore = []
             try:
-                with open(os.path.join(self.root, ".gitignore"), encoding="utf-8", errors="replace") as f:
+                gitignore = os.path.join(self.root, ".gitignore")
+                with open(gitignore, encoding="utf-8", errors="replace") as f:
                     for line in f:
                         line = line.strip()
                         if line and not line.startswith(("#", "!")):
@@ -347,7 +369,7 @@ class Repo:
             return ""
 
     # ----------------------------------------------------------- package.json
-    @lru_cache(maxsize=256)
+    @_instance_cache(maxsize=256)
     def package_json(self, rel):
         try:
             data = json.loads(self.read_text(rel) or "{}")
@@ -362,12 +384,13 @@ class Repo:
     def node_packages(self):
         return [p for p in self.all_named(["package.json"]) if not self.is_generated(p)]
 
-    @lru_cache(maxsize=1)
+    @_instance_cache(maxsize=1)
     def node_deps(self):
         deps, bins = set(), set()
         for p in self.node_packages():
             data = self.package_json(p)
-            for key in ("dependencies", "devDependencies", "optionalDependencies", "peerDependencies"):
+            for key in ("dependencies", "devDependencies", "optionalDependencies",
+                        "peerDependencies"):
                 if isinstance(data.get(key), dict):
                     deps.update(data[key])
             b = data.get("bin")
@@ -378,7 +401,7 @@ class Repo:
         return deps, bins
 
     # --------------------------------------------------------------- Makefile
-    @lru_cache(maxsize=64)
+    @_instance_cache(maxsize=64)
     def make_targets(self, rel, _depth=0):
         """(targets, patterns, dynamic) for one Makefile, following include lines."""
         targets, patterns, dynamic = set(), set(), False
@@ -402,7 +425,9 @@ class Repo:
                     if "$" in name:
                         dynamic = True
                         continue
-                    for hit in self.glob(name, base) if any(c in name for c in "*?[") else [join(base, name)]:
+                    hits = (self.glob(name, base) if any(c in name for c in "*?[")
+                            else [join(base, name)])
+                    for hit in hits:
                         if self.is_file(hit) and _depth < 5:
                             t, p, d = self.make_targets(hit, _depth + 1)
                             targets |= t
@@ -428,7 +453,7 @@ class Repo:
         return targets, patterns, dynamic
 
     # --------------------------------------------------------------- justfile
-    @lru_cache(maxsize=64)
+    @_instance_cache(maxsize=64)
     def just_recipes(self, rel, _depth=0):
         """(recipes, modules, fallback) for one justfile, following imports."""
         recipes, modules, fallback = set(), set(), False
@@ -463,7 +488,7 @@ class Repo:
         return recipes, modules, fallback
 
     # --------------------------------------------------------------- Taskfile
-    @lru_cache(maxsize=64)
+    @_instance_cache(maxsize=64)
     def task_names(self, rel):
         """(tasks, include_namespaces) from a Taskfile.yml, without a YAML parser."""
         tasks, includes = set(), set()
@@ -491,7 +516,7 @@ class Repo:
         return tasks, includes
 
     # ------------------------------------------------------------- Python
-    @lru_cache(maxsize=1)
+    @_instance_cache(maxsize=1)
     def python_info(self):
         """Union of console scripts, runner scripts and dependency names across the repo."""
         scripts, deps, hatch = set(), set(), set()
@@ -526,15 +551,17 @@ class Repo:
                 table = section.get("tasks" if name == "poe" else "scripts")
                 if isinstance(table, dict):
                     scripts.update(table)
-                for group in (section.get("dev-dependencies") or {}).values() if isinstance(section.get("dev-dependencies"), dict) else []:
+                dev = section.get("dev-dependencies")
+                for group in dev.values() if isinstance(dev, dict) else []:
                     deps.update(_pep508_name(s) for s in group if isinstance(s, str))
-                if isinstance(section.get("dev-dependencies"), list):
-                    deps.update(_pep508_name(s) for s in section["dev-dependencies"] if isinstance(s, str))
+                if isinstance(dev, list):
+                    deps.update(_pep508_name(s) for s in dev if isinstance(s, str))
             uv = tool.get("uv", {}) if isinstance(tool.get("uv"), dict) else {}
             for s in uv.get("dev-dependencies", []) or []:
                 deps.add(_pep508_name(s))
             deps.update(_tool_dependencies(tool))  # e.g. [tool.hatch.metadata.hooks.*] dependencies
-            envs = (tool.get("hatch", {}) or {}).get("envs", {}) if isinstance(tool.get("hatch"), dict) else {}
+            hatch_cfg = tool.get("hatch")
+            envs = (hatch_cfg or {}).get("envs", {}) if isinstance(hatch_cfg, dict) else {}
             for env_name, env in (envs or {}).items():
                 if not isinstance(env, dict):
                     continue
@@ -547,7 +574,8 @@ class Repo:
                     hatch.add(env_name + ":" + script)
         for p in self.files:
             name = posixpath.basename(p).lower()
-            if name.startswith("requirements") and name.endswith((".txt", ".in")) and not self.is_generated(p):
+            if (name.startswith("requirements") and name.endswith((".txt", ".in"))
+                    and not self.is_generated(p)):
                 for line in self.read_text(p).splitlines():
                     line = line.strip()
                     if line and not line.startswith(("#", "-")):
@@ -593,7 +621,8 @@ class Repo:
             for n in names[i:i + 400]:
                 args += ["-e", n]
             try:
-                res = subprocess.run(["git", "-C", self.root] + args, capture_output=True, timeout=300)
+                res = subprocess.run(["git", "-C", self.root] + args, capture_output=True,
+                                     timeout=300)
             except (OSError, subprocess.SubprocessError):
                 return False
             if res.returncode not in (0, 1):

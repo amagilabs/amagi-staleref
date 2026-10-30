@@ -17,7 +17,8 @@ def load_config(root):
     if os.path.isfile(path):
         return _load_toml(path)
     data = _load_toml(os.path.join(root, "pyproject.toml"))
-    cfg = (data.get("tool") or {}).get("amagi-staleref") if isinstance(data.get("tool"), dict) else None
+    tool = data.get("tool")
+    cfg = (tool or {}).get("amagi-staleref") if isinstance(tool, dict) else None
     return cfg if isinstance(cfg, dict) else {}
 
 
@@ -52,7 +53,8 @@ def scan(root, files=None, readme=True, include=(), exclude=(), ignore=(), selec
     repo.prefetch_env({n for c in checkers for _, n in c.env_refs})
     for checker in checkers:
         for f in checker.finish():
-            if f.rule in ignore or (select and f.rule not in select) or (f.rule in OPTIONAL and f.rule not in enable):
+            if (f.rule in ignore or (select and f.rule not in select)
+                    or (f.rule in OPTIONAL and f.rule not in enable)):
                 continue
             findings.append(f)
         checked += checker.checked
@@ -68,18 +70,21 @@ def build_parser():
     )
     p.add_argument("paths", nargs="*", metavar="PATH",
                    help="repo folder to scan (default: current folder), or specific files to check")
-    p.add_argument("--root", help="repo root used to resolve references when PATH is a file (default: current folder)")
+    p.add_argument("--root", help="repo root used to resolve references when PATH is a file"
+                                  " (default: current folder)")
     p.add_argument("--format", choices=("text", "json", "github"), default="text")
     p.add_argument("--fail-on", choices=("error", "warning", "info", "never"), default=None,
                    help="lowest severity that makes the exit code 1 (default: warning)")
-    p.add_argument("--no-readme", action="store_true", help="skip README files, check agent files only")
+    p.add_argument("--no-readme", action="store_true",
+                   help="skip README files, check agent files only")
     p.add_argument("--include", action="append", default=[], metavar="GLOB",
                    help="also check files matching GLOB (repeatable), e.g. 'docs/**/*.md'")
     p.add_argument("--exclude", action="append", default=[], metavar="GLOB",
                    help="skip files matching GLOB (repeatable)")
     p.add_argument("--ignore", default="", metavar="IDS", help="rules to skip, e.g. SR040,SR002")
     p.add_argument("--select", default="", metavar="IDS", help="run only these rules")
-    p.add_argument("--enable", default="", metavar="IDS", help="turn on rules that are off by default (SR002)")
+    p.add_argument("--enable", default="", metavar="IDS",
+                   help="turn on rules that are off by default (SR002)")
     p.add_argument("--quiet", action="store_true", help="print nothing when nothing is stale")
     p.add_argument("--list-rules", action="store_true", help="print every rule and exit")
     p.add_argument("--version", action="version", version=f"amagi-staleref {__version__}")
@@ -115,14 +120,18 @@ def main(argv=None):
         for f in files:
             rel = os.path.relpath(os.path.abspath(f), root).replace("\\", "/")
             if rel.startswith(".."):
-                print(f"amagi-staleref: {f} is outside the root {root}; pass --root", file=sys.stderr)
+                print(f"amagi-staleref: {f} is outside the root {root}; pass --root",
+                      file=sys.stderr)
                 return 2
             rels.append(rel)
         results.append(scan(root, files=rels, **common))
 
     merged = {"files": [], "findings": [], "checked": 0, "roots_without_files": []}
     for r, d in zip(results, dirs + (["."] if files else [])):
-        prefix = "" if len(dirs) + bool(files) == 1 or d == "." else d.rstrip("/\\").replace("\\", "/") + "/"
+        if len(dirs) + bool(files) == 1 or d == ".":
+            prefix = ""
+        else:
+            prefix = d.rstrip("/\\").replace("\\", "/") + "/"
         merged["files"] += [prefix + f for f in r["files"]]
         for f in r["findings"]:
             f.file = prefix + f.file

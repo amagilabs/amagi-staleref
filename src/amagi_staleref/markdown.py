@@ -9,7 +9,8 @@ import re
 from dataclasses import dataclass, field
 
 FENCE_RE = re.compile(r"^(\s{0,3})(`{3,}|~{3,})\s*([^\s`]*)")
-LINK_RE = re.compile(r"!?\[(?:[^\]\\]|\\.)*\]\(\s*<?([^)\s>]+)>?(?:\s+(?:\"[^\"]*\"|'[^']*'))?\s*\)")
+LINK_RE = re.compile(r"!?\[(?:[^\]\\]|\\.)*\]\(\s*<?([^)\s>]+)>?"
+                     r"(?:\s+(?:\"[^\"]*\"|'[^']*'))?\s*\)")
 EXTERNAL_AFTER_RE = re.compile(r"[^\[\]]*\]\(\s*<?[A-Za-z][A-Za-z0-9+.-]*:")
 REF_LINK_RE = re.compile(r"^\s{0,3}\[(?!\^)[^\]]+\]:\s*<?(\S+?)>?(?:\s+.*)?$")  # not [^footnote]:
 IMPORT_RE = re.compile(r"(?:^|(?<=[\s(\[]))@((?:\.{1,2}/|~/|/)?[A-Za-z0-9_][A-Za-z0-9_.\-/]*)")

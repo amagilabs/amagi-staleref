@@ -12,12 +12,12 @@ from .rules import severity_of
 
 # ------------------------------------------------------------------ path shape
 KNOWN_EXTS = set("""
-py pyi pyx ipynb js mjs cjs jsx ts mts cts tsx json jsonc json5 yaml yml toml ini cfg conf md mdx mdc
-rst txt adoc sh bash zsh fish ps1 psm1 bat cmd go mod rs rb erb java kt kts scala swift m mm c h cc
-cpp cxx hpp hh cs csproj sln fs vb php pl lua r jl dart ex exs erl hs ml clj sql prisma graphql gql
-proto html htm css scss sass less vue svelte astro xml svg csv tsv lock env example sample template
-tmpl tpl j2 jinja hbs ejs pug tf tfvars hcl nix dockerfile gradle properties plist wasm zig sol mk
-just png jpg jpeg gif ico webp pdf xlsx docx pem crt patch diff http rego cue bicep
+py pyi pyx ipynb js mjs cjs jsx ts mts cts tsx json jsonc json5 yaml yml toml ini cfg conf md mdx
+mdc rst txt adoc sh bash zsh fish ps1 psm1 bat cmd go mod rs rb erb java kt kts scala swift m mm c h
+cc cpp cxx hpp hh cs csproj sln fs vb php pl lua r jl dart ex exs erl hs ml clj sql prisma graphql
+gql proto html htm css scss sass less vue svelte astro xml svg csv tsv lock env example sample
+template tmpl tpl j2 jinja hbs ejs pug tf tfvars hcl nix dockerfile gradle properties plist wasm zig
+sol mk just png jpg jpeg gif ico webp pdf xlsx docx pem crt patch diff http rego cue bicep
 """.split())
 KNOWN_NAMES = {
     "makefile", "gnumakefile", "dockerfile", "containerfile", "justfile", "procfile", "gemfile",
@@ -34,7 +34,9 @@ PLACEHOLDER_SEGMENTS = {
     "foo", "bar", "baz", "qux", "xxx", "xx", "yyy", "zzz", "path", "to", "example", "examples-here",
     "your", "yours", "mine", "something", "somewhere", "whatever", "name", "file", "dir", "folder",
 }
-PLACEHOLDER_WORDS = {"foo", "bar", "baz", "qux", "xxx", "nnn", "yyyy", "todo", "tbd", "specific", "whatever"}
+PLACEHOLDER_WORDS = {
+    "foo", "bar", "baz", "qux", "xxx", "nnn", "yyyy", "todo", "tbd", "specific", "whatever",
+}
 PLACEHOLDER_LEADS = {"example", "sample", "my", "your", "some", "new", "another", "other", "hello"}
 # Install-layout folders (lib/gstreamer-1.0/, usr/local/bin): about a system, not this repo,
 # unless the repo really has a folder by that name.
@@ -130,7 +132,8 @@ def classify(tok):
     if tok.startswith(("./", "../")):
         return "path"
     if "/" in tok.rstrip("/"):
-        if not has_ext and re.search(r"[A-Z_]", segments[-1].rsplit(".", 1)[-1]) and "." in segments[-1][1:]:
+        if (not has_ext and re.search(r"[A-Z_]", segments[-1].rsplit(".", 1)[-1])
+                and "." in segments[-1][1:]):
             return None  # mappers/__init__.PRESETS: a Python attribute, not a file
         return "path" if has_ext or tok.endswith("/") else "maybe"
     if tok.endswith("/"):
@@ -146,13 +149,18 @@ def classify(tok):
 # A missing path on a line like this is usually one the reader is told to create,
 # avoid or rename, or a made-up example. Those lines are not checked for paths.
 HYPOTHETICAL_RE = re.compile(
-    r"(?i)\b(?:never|don't|do not|must not|should not|shouldn't|avoid|instead of|renam(?:e|es|ed|ing)|"
+    r"(?i)\b(?:never|don't|do not|must not|should not|shouldn't|avoid|instead of|"
+    r"renam(?:e|es|ed|ing)|"
     r"creat(?:e|es|ed|ing)|new file|will be (?:created|generated|written)|generat(?:e|es|ed|ing)|"
-    r"e\.g\.|for example|formerly|previously|no longer|used to be|(?:git)?ignored|scaffold|upstream|"
-    r"your (?:own )?(?:repo|repository|project)|(?:in|into|from) the [\w.-]+ repo(?:sitory)?\b|port of|"
-    r"(?:like|such as) `|output (?:goes |is written )?(?:to|in)|writes? (?:to|out)|saved? (?:to|in|as))")
+    r"e\.g\.|for example|formerly|previously|no longer|used to be|(?:git)?ignored|scaffold|"
+    r"upstream|"
+    r"your (?:own )?(?:repo|repository|project)|(?:in|into|from) the [\w.-]+ repo(?:sitory)?\b|"
+    r"port of|"
+    r"(?:like|such as) `|output (?:goes |is written )?(?:to|in)|writes? (?:to|out)|"
+    r"saved? (?:to|in|as))")
 # Lines that explain glob or path matching use made-up paths: "`*.py` matches `src/main.py`".
-PATTERN_TALK_RE = re.compile(r"(?i)\b(?:pattern|patterns|match(?:es|ed)?|denies|allowlist|denylist)\b")
+PATTERN_TALK_RE = re.compile(
+    r"(?i)\b(?:pattern|patterns|match(?:es|ed)?|denies|allowlist|denylist)\b")
 
 # ------------------------------------------------------------------ env vars
 ENV_PATTERNS = [
@@ -171,12 +179,14 @@ ENV_PATTERNS = [
 ]
 BARE_ENV_RE = re.compile(r"^[A-Z][A-Z0-9]*(?:_[A-Z0-9]+)+$")
 ASSIGN_SPAN_RE = re.compile(r"^(?:export\s+)?([A-Z][A-Z0-9_]*)=\S*$")
-ENV_CONTEXT_RE = re.compile(r"(?i)\benv\b|\.env|environment|variable|\bexport\b|secret|token|api[ _-]?key|credential")
+ENV_CONTEXT_RE = re.compile(
+    r"(?i)\benv\b|\.env|environment|variable|\bexport\b|secret|token|api[ _-]?key|credential")
 
 KNOWN_ENV = set("""
-PATH HOME USER USERNAME USERPROFILE SHELL TERM LANG LANGUAGE TZ TMPDIR TEMP TMP PWD OLDPWD EDITOR VISUAL
-PAGER HOSTNAME LOGNAME DISPLAY COLUMNS LINES NO_COLOR FORCE_COLOR CLICOLOR CI DEBUG PORT HOST
-HTTP_PROXY HTTPS_PROXY NO_PROXY ALL_PROXY SSL_CERT_FILE SSL_CERT_DIR REQUESTS_CA_BUNDLE CURL_CA_BUNDLE
+PATH HOME USER USERNAME USERPROFILE SHELL TERM LANG LANGUAGE TZ TMPDIR TEMP TMP PWD OLDPWD EDITOR
+VISUAL PAGER HOSTNAME LOGNAME DISPLAY COLUMNS LINES NO_COLOR FORCE_COLOR CLICOLOR CI DEBUG PORT HOST
+HTTP_PROXY HTTPS_PROXY NO_PROXY ALL_PROXY SSL_CERT_FILE SSL_CERT_DIR REQUESTS_CA_BUNDLE
+CURL_CA_BUNDLE
 NODE_ENV NODE_OPTIONS NODE_PATH NODE_EXTRA_CA_CERTS NODE_TLS_REJECT_UNAUTHORIZED
 PYTHONPATH PYTHONHOME PYTHONUNBUFFERED PYTHONDONTWRITEBYTECODE PYTHONIOENCODING PYTHONUTF8
 PYTHONWARNINGS PYTHONBREAKPOINT PYTHONHASHSEED VIRTUAL_ENV CONDA_PREFIX CONDA_DEFAULT_ENV
@@ -185,14 +195,16 @@ CGO_ENABLED GO111MODULE RUST_LOG RUST_BACKTRACE RUSTFLAGS KUBECONFIG DOCKER_HOST
 OPENAI_API_KEY OPENAI_BASE_URL OPENAI_ORG_ID ANTHROPIC_API_KEY ANTHROPIC_BASE_URL ANTHROPIC_MODEL
 GEMINI_API_KEY GOOGLE_API_KEY GOOGLE_APPLICATION_CREDENTIALS GOOGLE_CLOUD_PROJECT MISTRAL_API_KEY
 GROQ_API_KEY OPENROUTER_API_KEY COHERE_API_KEY HF_TOKEN HF_HOME HUGGING_FACE_HUB_TOKEN
-GITHUB_TOKEN GH_TOKEN GITLAB_TOKEN NPM_TOKEN NODE_AUTH_TOKEN PYPI_TOKEN TWINE_USERNAME TWINE_PASSWORD
+GITHUB_TOKEN GH_TOKEN GITLAB_TOKEN NPM_TOKEN NODE_AUTH_TOKEN PYPI_TOKEN TWINE_USERNAME
+TWINE_PASSWORD
 SENTRY_DSN SENTRY_AUTH_TOKEN DATABASE_URL REDIS_URL LOG_LEVEL
 EDITOR SUDO_USER WSL_DISTRO_NAME MSYSTEM COMSPEC SYSTEMROOT APPDATA LOCALAPPDATA PROGRAMFILES
 """.split())
 KNOWN_ENV_PREFIXES = (
     "GITHUB_", "RUNNER_", "ACTIONS_", "AWS_", "AZURE_", "ARM_", "GOOGLE_", "CLOUDSDK_", "CLAUDE_",
     "CLAUDE_CODE_", "ANTHROPIC_", "OPENAI_", "CODEX_", "CURSOR_", "UV_", "PIP_", "POETRY_", "PDM_",
-    "HATCH_", "PIPENV_", "NPM_CONFIG_", "npm_", "YARN_", "PNPM_", "BUN_", "DENO_", "CARGO_", "RUSTUP_",
+    "HATCH_", "PIPENV_", "NPM_CONFIG_", "npm_", "YARN_", "PNPM_", "BUN_", "DENO_", "CARGO_",
+    "RUSTUP_",
     "XDG_", "LC_", "DOCKER_", "COMPOSE_", "BUILDKIT_", "VERCEL_", "NETLIFY_", "CF_", "HF_", "TF_",
     "PYTEST_", "COVERAGE_", "TOX_", "NEXT_TELEMETRY", "GIT_", "SSH_", "GPG_", "OTEL_", "MSYS",
     "PROCESSOR_", "CONDA_", "MAMBA_", "JUPYTER_", "PLAYWRIGHT_", "PUPPETEER_", "CYPRESS_",
@@ -203,9 +215,9 @@ KNOWN_ENV_PREFIXES = (
 NPM_LIFECYCLE = {"test": "test", "t": "test", "tst": "test", "start": "start", "stop": "stop"}
 PNPM_BUILTINS = set("""
 add install i update up upgrade remove rm uninstall un link ln unlink import rebuild rb prune fetch
-patch patch-commit patch-remove dlx exec create init publish pack outdated list ls ll why audit store
-env setup server root bin config c deploy licenses doctor approve-builds ignored-builds self-update
-help recursive multi m dedupe catalog licenses cat-file cat-index find-hash sbom version
+patch patch-commit patch-remove dlx exec create init publish pack outdated list ls ll why audit
+store env setup server root bin config c deploy licenses doctor approve-builds ignored-builds
+self-update help recursive multi m dedupe catalog licenses cat-file cat-index find-hash sbom version
 """.split())
 YARN_BUILTINS = set("""
 add install remove upgrade upgrade-interactive up why workspace workspaces dlx init info link unlink
@@ -220,37 +232,47 @@ create init upgrade build test repl exec why
 NODE_BIN_PACKAGES = {
     "tsc": "typescript", "ng": "@angular/cli", "nuxi": "nuxt", "svelte-kit": "@sveltejs/kit",
     "vue-cli-service": "@vue/cli-service", "remix": "@remix-run/dev", "biome": "@biomejs/biome",
-    "changeset": "@changesets/cli", "commitlint": "@commitlint/cli", "playwright": "@playwright/test",
-    "sb": "storybook", "eslint_d": "eslint_d", "webpack": "webpack-cli", "react-native": "react-native",
+    "changeset": "@changesets/cli", "commitlint": "@commitlint/cli",
+    "playwright": "@playwright/test", "sb": "storybook", "eslint_d": "eslint_d",
+    "webpack": "webpack-cli", "react-native": "react-native",
     "wrangler": "wrangler", "cdk": "aws-cdk", "sls": "serverless", "tsserver": "typescript",
 }
 PY_BIN_PACKAGES = {
-    "py.test": "pytest", "django-admin": "django", "sphinx-build": "sphinx", "sphinx-autobuild": "sphinx-autobuild",
+    "py.test": "pytest", "django-admin": "django", "sphinx-build": "sphinx",
+    "sphinx-autobuild": "sphinx-autobuild",
     "jupyter": "jupyter", "jupyter-lab": "jupyterlab", "ipython": "ipython", "fastapi": "fastapi",
     "pyright": "pyright", "pre-commit": "pre-commit", "mkdocs": "mkdocs", "f2py": "numpy",
     "pip": "pip", "python": "python", "python3": "python", "coverage": "coverage", "dmypy": "mypy",
-    "stubgen": "mypy", "flask": "flask", "celery": "celery", "alembic": "alembic", "huey_consumer": "huey",
+    "stubgen": "mypy", "flask": "flask", "celery": "celery", "alembic": "alembic",
+    "huey_consumer": "huey",
     "ruff": "ruff", "pytest": "pytest", "mypy": "mypy",
 }
 PY_ALWAYS = {"python", "python3", "pip", "pip3"}
 # "uv run cargo fuzz" runs whatever is on PATH; these are not Python entry points.
 NOT_PYTHON_TOOLS = set("""
-cargo rustc rustup maturin node npm npx pnpm yarn bun deno make just task git docker podman bash sh zsh
-pwsh powershell cmake ninja go java gradle mvn dotnet gh kubectl helm terraform ruby gem bundle
+cargo rustc rustup maturin node npm npx pnpm yarn bun deno make just task git docker podman bash sh
+zsh pwsh powershell cmake ninja go java gradle mvn dotnet gh kubectl helm terraform ruby gem bundle
 """.split())
 PYTHONS = re.compile(r"^(?:python(?:\d(?:\.\d+)?)?|py|python\.exe|pypy3?)$")
-CREATE_WORDS = {"create", "new", "init", "startproject", "startapp", "clone", "generate", "scaffold"}
+CREATE_WORDS = {
+    "create", "new", "init", "startproject", "startapp", "clone", "generate", "scaffold",
+}
 GENERIC = set("""
-node deno ts-node tsx bash sh zsh fish source . pwsh powershell cat less more head tail bat code cursor
-vim nvim vi nano emacs subl open xdg-open start chmod pytest ruby perl php rscript julia lua java javac
+node deno ts-node tsx bash sh zsh fish source . pwsh powershell cat less more head tail bat code
+cursor vim nvim vi nano emacs subl open xdg-open start chmod pytest ruby perl php rscript julia lua
+java javac
 gcc g++ clang rustc eslint prettier jest vitest mypy ruff black flake8 pylint isort pyright
-coverage alembic streamlit kubectl ansible-playbook psql sqlite3 jq diff wc grep rg find ls tree cp mv ln
+coverage alembic streamlit kubectl ansible-playbook psql sqlite3 jq diff wc grep rg find ls tree cp
+mv ln
 pre-commit shellcheck yamllint markdownlint hadolint terraform helm pwsh.exe dot pandoc
 """.split())
 NO_CREATE_CHECK = {"cp", "mv", "ln"}  # the last argument is a destination
 PATH_FLAG_TOOLS = {"docker", "docker-compose", "pip", "pip3", "podman"}
 PATH_FLAGS = {"-f", "--file", "--env-file", "-r", "--requirement", "-c", "--constraint"}
-PYTHON_M_PATH_MODULES = {"pytest", "unittest", "mypy", "ruff", "black", "flake8", "pylint", "isort", "coverage", "doctest", "pip"}
+PYTHON_M_PATH_MODULES = {
+    "pytest", "unittest", "mypy", "ruff", "black", "flake8", "pylint", "isort", "coverage",
+    "doctest", "pip",
+}
 
 
 @dataclass
@@ -315,7 +337,8 @@ class FileChecker:
                     continue
                 seen.add(name)
                 if not hits.get(name, set()) - self.instruction_files:
-                    self.add(line, "SR040", f"env var {name} is not mentioned anywhere else in the repo", name)
+                    self.add(line, "SR040",
+                             f"env var {name} is not mentioned anywhere else in the repo", name)
             self.env_refs = []
         self.findings = [
             f for f in self.findings if f.line not in ex.ignored_lines and f.rule not in ex.disabled
@@ -361,13 +384,15 @@ class FileChecker:
                 (kind == "glob" and not any(c in first for c in "*?[{"))
                 or (kind != "glob" and (first.startswith(".") or first in SYSTEM_DIRS)))
             if needs_dir and not any(self.repo.is_dir(join(b, first)) for b in bases):
-                return  # payloads/*.json, .codex/config.toml: about a folder this repo does not have
+                # payloads/*.json, .codex/config.toml: about a folder this repo does not have
+                return
         if kind == "glob":
             self.checked += 1
             for b in bases:
                 if self.repo.glob(target, b):
                     return
-            if HYPOTHETICAL_RE.search(self._sentence(line)) or PATTERN_TALK_RE.search(self._line_text(line)):
+            if (HYPOTHETICAL_RE.search(self._sentence(line))
+                    or PATTERN_TALK_RE.search(self._line_text(line))):
                 return
             if self.repo.is_generated(target) or self.repo.is_ignored(target):
                 return
@@ -377,7 +402,8 @@ class FileChecker:
             first = target.split("/")[0]
             if not any(self.repo.is_dir(join(b, first)) for b in bases):
                 return  # not a path in this repo (owner/repo, feature/branch, text/html, ...)
-        if HYPOTHETICAL_RE.search(self._sentence(line)) or PATTERN_TALK_RE.search(self._line_text(line)):
+        if (HYPOTHETICAL_RE.search(self._sentence(line))
+                or PATTERN_TALK_RE.search(self._line_text(line))):
             return
         self.checked += 1
         candidates = [join(b, target) for b in bases]
@@ -395,7 +421,8 @@ class FileChecker:
             base = posixpath.basename(target.rstrip("/"))
             if self.repo.files_named(base) or self.repo._secret_env(base):
                 return  # a real .env is never committed, so it is never "missing"
-            self.add(line, "SR002", f"no file named '{tok}' anywhere in the repo{self._hint(target)}", tok)
+            self.add(line, "SR002",
+                     f"no file named '{tok}' anywhere in the repo{self._hint(target)}", tok)
             return
         if not tok.startswith(("./", "../")) and self.repo.suffix_match(target):
             return
@@ -408,7 +435,8 @@ class FileChecker:
             if not self.repo.is_dir(parent):
                 continue
             prefix = parent + "/" if parent else ""
-            siblings = sorted({p[len(prefix):].split("/")[0] for p in self.repo.files | self.repo.dirs
+            siblings = sorted({p[len(prefix):].split("/")[0]
+                               for p in self.repo.files | self.repo.dirs
                                if p.startswith(prefix) and p != parent})
             close = difflib.get_close_matches(base, siblings, n=1, cutoff=0.75)
             if close:
@@ -424,7 +452,8 @@ class FileChecker:
         return ""
 
     def check_link(self, line, target):
-        if re.match(r"^[A-Za-z][A-Za-z0-9+.-]*:", target) or target.startswith(("#", "/", "~", "//")):
+        if (re.match(r"^[A-Za-z][A-Za-z0-9+.-]*:", target)
+                or target.startswith(("#", "/", "~", "//"))):
             return
         target = unquote(target.split("#", 1)[0].split("?", 1)[0])
         if not target or any(c in target for c in "<>{}$`"):
@@ -433,7 +462,8 @@ class FileChecker:
         full = join(self.doc_dir, target)
         if self.repo.exists(full) or self.repo.is_generated(full) or self.repo.is_ignored(full):
             return
-        self.add(line, "SR005", f"link target '{target}' does not exist{self._hint(target, [full])}", target)
+        self.add(line, "SR005",
+                 f"link target '{target}' does not exist{self._hint(target, [full])}", target)
 
     def check_import(self, line, target):
         if target.startswith(("~", "/")):
@@ -517,7 +547,8 @@ class FileChecker:
         prev = self._line_text(line - 1) if line > 1 else ""
         if prev.strip() and not prev.lstrip().startswith(("#", "```", "~~~", "|")) \
                 and not re.match(r"\s*(?:[-*+]|\d+[.)])\s|\s*[#|]", text):
-            tail = re.split(r"[.!?:][`*_)\"']*\s+", markdown.HTML_COMMENT_RE.sub("", prev).rstrip() + " ")[-1]
+            prose = markdown.HTML_COMMENT_RE.sub("", prev).rstrip() + " "
+            tail = re.split(r"[.!?:][`*_)\"']*\s+", prose)[-1]
             if tail.strip():
                 return tail.strip() + " " + text
         return text
@@ -548,8 +579,10 @@ class FileChecker:
         prog = posixpath.basename(argv[0]).lower()
         if prog.endswith(".exe"):
             prog = prog[:-4]
-        known = prog in DISPATCH or prog in GENERIC or PYTHONS.match(prog) or prog in PATH_FLAG_TOOLS \
-            or prog in ("export", "set", "setx", "git", "mkdir", "cd", "pushd", "popd", "set-location", "sl")
+        known = prog in DISPATCH or prog in GENERIC or PYTHONS.match(prog) \
+            or prog in PATH_FLAG_TOOLS \
+            or prog in ("export", "set", "setx", "git", "mkdir", "cd", "pushd", "popd",
+                        "set-location", "sl")
         path_exec = classify(clean_token(argv[0])) in ("path", "maybe") and "/" in argv[0]
         if not known and not path_exec:
             if span:
@@ -637,7 +670,8 @@ class FileChecker:
             state["cwd"] = cand
             return
         if cur and self.repo.is_dir(norm(target)):
-            state["cwd"] = norm(target)  # "cd examples/app" in examples/app/README.md: from the root
+            # "cd examples/app" in examples/app/README.md: from the root
+            state["cwd"] = norm(target)
             return
         head, _, tail = norm(target).partition("/")
         if tail and head in self.repo.remote_slugs() and self.repo.is_dir(tail):
@@ -667,7 +701,8 @@ class FileChecker:
         any_ws = False
         positional = []
         i = 0
-        value_flags = {"-w", "--workspace", "--filter", "-F", "--scope", "--prefix", "-C", "--dir", "--cwd"}
+        value_flags = {"-w", "--workspace", "--filter", "-F", "--scope", "--prefix", "-C", "--dir",
+                       "--cwd"}
         while i < len(args):
             a = args[i]
             if a == "--":
@@ -711,17 +746,19 @@ class FileChecker:
             if pm == "bun" and classify(clean_token(name)) in ("path", "bare", "maybe"):
                 self.check_path(line, name, cwd)
                 return
-            self._script(pm, name, line, cwd, any_ws, strict=True, allow_bin=pm in ("yarn", "bun"), alt=alt)
+            self._script(pm, name, line, cwd, any_ws, strict=True, allow_bin=pm in ("yarn", "bun"),
+                         alt=alt)
             return
         if pm == "npm":
             if sub in NPM_LIFECYCLE:
-                self._script(pm, NPM_LIFECYCLE[sub], line, cwd, any_ws, strict=True, allow_bin=False,
-                             start_fallback=sub == "start", alt=alt)
+                self._script(pm, NPM_LIFECYCLE[sub], line, cwd, any_ws, strict=True,
+                             allow_bin=False, start_fallback=sub == "start", alt=alt)
             return
         builtins = {"pnpm": PNPM_BUILTINS, "yarn": YARN_BUILTINS, "bun": BUN_BUILTINS}[pm]
         if sub in ("test", "t", "start") and pm != "bun":
             name = "start" if sub == "start" else "test"
-            self._script(pm, name, line, cwd, any_ws, strict=True, allow_bin=False, start_fallback=sub == "start", alt=alt)
+            self._script(pm, name, line, cwd, any_ws, strict=True, allow_bin=False,
+                         start_fallback=sub == "start", alt=alt)
             return
         if sub in builtins:
             return
@@ -743,7 +780,8 @@ class FileChecker:
             if any(name in repo.scripts(p) for p in pkgs):
                 return
             if not pkgs:
-                self.add(line, "SR011", f"'{pm} ... {name}' but there is no package.json in the repo", name)
+                self.add(line, "SR011",
+                         f"'{pm} ... {name}' but there is no package.json in the repo", name)
                 return
             scripts = set().union(*(repo.scripts(p) for p in pkgs))
             where = "any workspace package.json"
@@ -751,7 +789,8 @@ class FileChecker:
         else:
             pkg = repo.nearest(cwd, ["package.json"])
             if pkg is None:
-                self.add(line, "SR011", f"'{pm} {name}' but no package.json in {cwd or '.'} or above", name)
+                self.add(line, "SR011",
+                         f"'{pm} {name}' but no package.json in {cwd or '.'} or above", name)
                 return
             scripts = repo.scripts(pkg)
             if name in scripts:
@@ -761,13 +800,15 @@ class FileChecker:
                 if other and name in repo.scripts(other):
                     return
             up = posixpath.dirname(posixpath.dirname(pkg)) if posixpath.dirname(pkg) else None
-            while up is not None:  # "bun run lint" in packages/x/AGENTS.md often means the root script
+            # "bun run lint" in packages/x/AGENTS.md often means the root script
+            while up is not None:
                 other = repo.nearest(up, ["package.json"])
                 if not other:
                     break
                 if name in repo.scripts(other):
                     return
-                up = posixpath.dirname(posixpath.dirname(other)) if posixpath.dirname(other) else None
+                up = (posixpath.dirname(posixpath.dirname(other))
+                      if posixpath.dirname(other) else None)
             where = pkg
             if not scripts and any(name in repo.scripts(p) for p in repo.node_packages()):
                 return  # this package.json has no scripts; the doc means another package
@@ -784,7 +825,8 @@ class FileChecker:
             hint = "; scripts: " + ", ".join(listed[:8]) + (", ..." if len(listed) > 8 else "")
         else:
             hint = "; it has no scripts"
-        what = "is not a script, built-in or installed package in" if rule == "SR012" else "is not a script in"
+        what = ("is not a script, built-in or installed package in" if rule == "SR012"
+                else "is not a script in")
         self.add(line, rule, f"{pm} script '{name}' {what} {where}{hint}", name)
 
     def _node_bin(self, name, pkg):
@@ -820,10 +862,12 @@ class FileChecker:
                 cwd = join(cwd, a.split("=", 1)[1] if "=" in a else a[2:])
             elif a.startswith(("--file=", "--makefile=")):
                 makefile = join(cwd, a.split("=", 1)[1])
-            elif a in ("-I", "-o", "-W", "--include-dir", "--old-file", "--what-if", "--eval") and i + 1 < len(args):
+            elif (a in ("-I", "-o", "-W", "--include-dir", "--old-file", "--what-if", "--eval")
+                  and i + 1 < len(args)):
                 i += 2
                 continue
-            elif a in ("-j", "--jobs", "-l", "--load-average") and i + 1 < len(args) and args[i + 1].isdigit():
+            elif (a in ("-j", "--jobs", "-l", "--load-average") and i + 1 < len(args)
+                  and args[i + 1].isdigit()):
                 i += 2
                 continue
             elif a in ("--version", "--help", "-v", "-h"):
@@ -841,7 +885,9 @@ class FileChecker:
                 # A doc in a subfolder usually means "run this from the repo root".
                 makefile = self.repo.nearest(cwd, names)
             alt = [m for d in self._line_dirs(line, state)
-                   for m in (next((join(d, n) for n in names if self.repo.is_file(join(d, n))), None),) if m]
+                   for m in (next((join(d, n) for n in names if self.repo.is_file(join(d, n))),
+                                  None),)
+                   if m]
             if makefile is None and alt:
                 makefile = alt[0]
             if makefile is None and targets and all(self._defined_below(t) for t in targets):
@@ -859,7 +905,8 @@ class FileChecker:
             if "$" in t or "<" in t:
                 continue
             self.checked += 1
-            if t in defined or dynamic or any(re.fullmatch(re.escape(p).replace("%", ".+"), t) for p in patterns):
+            if t in defined or dynamic or any(re.fullmatch(re.escape(p).replace("%", ".+"), t)
+                                              for p in patterns):
                 continue
             if self.repo.exists(join(posixpath.dirname(makefile), t)):
                 continue  # make builds a file that already exists
@@ -872,7 +919,8 @@ class FileChecker:
     def _defined_below(self, target):
         """True if some Makefile under this doc's folder defines `target`."""
         for m in self.repo.all_named(("Makefile", "makefile", "GNUmakefile")):
-            if (not self.doc_dir or m.startswith(self.doc_dir + "/")) and not self.repo.is_generated(m):
+            if ((not self.doc_dir or m.startswith(self.doc_dir + "/"))
+                    and not self.repo.is_generated(m)):
                 defined, _, dynamic = self.repo.make_targets(m)
                 if target in defined:
                     return True
@@ -891,10 +939,12 @@ class FileChecker:
                 i += 2
                 continue
             if a in ("-d", "--working-directory", "--set", "--dotenv-path", "--dotenv-filename",
-                     "--color", "--shell", "--shell-arg", "--command", "-c", "--chooser") and i + 1 < len(args):
+                     "--color", "--shell", "--shell-arg", "--command", "-c",
+                     "--chooser") and i + 1 < len(args):
                 i += 3 if a == "--set" else 2
                 continue
-            if a in ("--version", "--help", "-h", "-V", "--init", "--completions", "--man", "--changelog"):
+            if a in ("--version", "--help", "-h", "-V", "--init", "--completions", "--man",
+                     "--changelog"):
                 return
             if a.startswith("-"):
                 i += 1
@@ -906,18 +956,21 @@ class FileChecker:
             justfile = self.repo.nearest(cwd, names)
             if justfile is None:
                 self.checked += 1
-                self.add(line, "SR023", f"'just' but there is no justfile in {cwd or '.'} or above", "just")
+                self.add(line, "SR023",
+                         f"'just' but there is no justfile in {cwd or '.'} or above", "just")
                 return
         recipes, modules, fallback = self.repo.just_recipes(justfile)
         if fallback:
-            parent = posixpath.dirname(posixpath.dirname(justfile)) if posixpath.dirname(justfile) else None
+            parent = (posixpath.dirname(posixpath.dirname(justfile))
+                      if posixpath.dirname(justfile) else None)
             while parent is not None:
                 up = self.repo.nearest(parent, names)
                 if not up:
                     break
                 r, m, fb = self.repo.just_recipes(up)
                 recipes, modules = recipes | r, modules | m
-                parent = posixpath.dirname(posixpath.dirname(up)) if posixpath.dirname(up) and fb else None
+                parent = (posixpath.dirname(posixpath.dirname(up))
+                          if posixpath.dirname(up) and fb else None)
         positional = [p for p in positional if "=" not in p]
         if not positional:
             return
@@ -955,12 +1008,14 @@ class FileChecker:
                 positional.append(a)
             i += 1
         names = ("Taskfile.yml", "taskfile.yml", "Taskfile.yaml", "taskfile.yaml",
-                 "Taskfile.dist.yml", "taskfile.dist.yml", "Taskfile.dist.yaml", "taskfile.dist.yaml")
+                 "Taskfile.dist.yml", "taskfile.dist.yml", "Taskfile.dist.yaml",
+                 "taskfile.dist.yaml")
         if taskfile is None:
             taskfile = self.repo.nearest(cwd, names)
             if taskfile is None:
                 self.checked += 1
-                self.add(line, "SR025", f"'task' but there is no Taskfile.yml in {cwd or '.'} or above", "task")
+                self.add(line, "SR025",
+                         f"'task' but there is no Taskfile.yml in {cwd or '.'} or above", "task")
                 return
         tasks, includes = self.repo.task_names(taskfile)
         for name in positional:
@@ -969,7 +1024,8 @@ class FileChecker:
             self.checked += 1
             if name in tasks or name.split(":")[0] in includes:
                 continue
-            if any(re.fullmatch(re.escape(t).replace(r"\*", ".+"), name) for t in tasks if "*" in t):
+            if any(re.fullmatch(re.escape(t).replace(r"\*", ".+"), name)
+                   for t in tasks if "*" in t):
                 continue
             close = difflib.get_close_matches(name, sorted(tasks), n=1, cutoff=0.6)
             hint = f"; did you mean '{close[0]}'?" if close else ""
@@ -1029,17 +1085,22 @@ class FileChecker:
         cur = base
         for seg in parts[1:]:
             if cur.endswith(".py"):
-                self.add(line, "SR030", f"python -m {mod}: {cur} is a module, so it has no '{seg}'", mod)
+                self.add(line, "SR030",
+                         f"python -m {mod}: {cur} is a module, so it has no '{seg}'", mod)
                 return
             if repo.is_dir(join(cur, seg)):
                 cur = join(cur, seg)
             elif repo.is_file(join(cur, seg + ".py")):
                 cur = join(cur, seg + ".py")
             else:
-                self.add(line, "SR030", f"python -m {mod}: no {join(cur, seg)}.py or {join(cur, seg)}/ in the repo", mod)
+                self.add(line, "SR030",
+                         f"python -m {mod}: no {join(cur, seg)}.py or {join(cur, seg)}/"
+                         " in the repo", mod)
                 return
         if not cur.endswith(".py") and not repo.is_file(join(cur, "__main__.py")):
-            self.add(line, "SR031", f"python -m {mod}: {cur}/ has no __main__.py, so it cannot be run with -m", mod)
+            self.add(line, "SR031",
+                     f"python -m {mod}: {cur}/ has no __main__.py, so it cannot be run with -m",
+                     mod)
 
     def cmd_py_runner(self, argv, line, state):
         tool = posixpath.basename(argv[0]).lower()
@@ -1053,8 +1114,9 @@ class FileChecker:
         rest = args[1:]
         has_with = False
         i = 0
-        value_flags = {"--with", "--with-editable", "--with-requirements", "--extra", "--group", "--package",
-                       "-p", "--python", "--project", "--index", "--index-url", "--env", "-e", "--only-group"}
+        value_flags = {"--with", "--with-editable", "--with-requirements", "--extra", "--group",
+                       "--package", "-p", "--python", "--project", "--index", "--index-url",
+                       "--env", "-e", "--only-group"}
         while i < len(rest):
             a = rest[i]
             if a == "--":
@@ -1102,7 +1164,8 @@ class FileChecker:
         elif PY_BIN_PACKAGES.get(name) and canon(PY_BIN_PACKAGES[name]) in deps:
             pass
         else:
-            self.add(line, "SR032", f"{tool} run {x}: not a script or dependency declared in the repo", x)
+            self.add(line, "SR032",
+                     f"{tool} run {x}: not a script or dependency declared in the repo", x)
             return
         if name in ("pytest", "py.test", "mypy", "ruff", "black"):
             self.generic_paths(["x"] + target[1:], line, dict(state, cwd=cwd))
@@ -1114,11 +1177,13 @@ class FileChecker:
 
 
 DISPATCH = {
-    "npm": FileChecker.cmd_node_pm, "pnpm": FileChecker.cmd_node_pm, "yarn": FileChecker.cmd_node_pm,
-    "bun": FileChecker.cmd_node_pm, "make": FileChecker.cmd_make, "gmake": FileChecker.cmd_make,
+    "npm": FileChecker.cmd_node_pm, "pnpm": FileChecker.cmd_node_pm,
+    "yarn": FileChecker.cmd_node_pm, "bun": FileChecker.cmd_node_pm,
+    "make": FileChecker.cmd_make, "gmake": FileChecker.cmd_make,
     "just": FileChecker.cmd_just, "task": FileChecker.cmd_task, "go-task": FileChecker.cmd_task,
-    "uv": FileChecker.cmd_py_runner, "poetry": FileChecker.cmd_py_runner, "pdm": FileChecker.cmd_py_runner,
-    "hatch": FileChecker.cmd_py_runner, "pipenv": FileChecker.cmd_py_runner, "rye": FileChecker.cmd_py_runner,
+    "uv": FileChecker.cmd_py_runner, "poetry": FileChecker.cmd_py_runner,
+    "pdm": FileChecker.cmd_py_runner, "hatch": FileChecker.cmd_py_runner,
+    "pipenv": FileChecker.cmd_py_runner, "rye": FileChecker.cmd_py_runner,
     "export": FileChecker.cmd_export, "setx": FileChecker.cmd_export, "git": FileChecker.cmd_git,
     "mkdir": FileChecker.cmd_mkdir, "cd": FileChecker.cmd_cd, "pushd": FileChecker.cmd_cd,
     "set-location": FileChecker.cmd_cd, "sl": FileChecker.cmd_cd, "popd": FileChecker.cmd_popd,
