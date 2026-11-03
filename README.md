@@ -54,7 +54,8 @@ pull in `tomli` to read `pyproject.toml`.
 amagi-staleref [PATH ...] [--root DIR] [--format text|json|github]
                [--fail-on error|warning|info|never] [--no-readme]
                [--include GLOB] [--exclude GLOB] [--ignore IDS] [--select IDS]
-               [--enable IDS] [--quiet] [--list-rules]
+               [--enable IDS] [--quiet] [--max-files N] [--no-progress]
+               [--list-rules]
 ```
 
 With no PATH it scans the current folder. A PATH can be a repo folder, or
@@ -109,6 +110,8 @@ Checked 19 references in 3 files. 12 stale: 8 errors, 4 warnings.
 | `--enable IDS` | Turn on rules that are off by default (SR002) |
 | `--root DIR` | Repo root for resolving references when you pass files |
 | `--quiet` | Print nothing when nothing is stale |
+| `--max-files N` | Stop with exit code 2 if the folder holds more than N files (default 100,000; `0` = no limit) |
+| `--no-progress` | Do not print progress lines to stderr on slow scans |
 | `--list-rules` | Print every rule and exit |
 
 Exit codes: 0 nothing at or above `--fail-on`, 1 stale references found, 2
@@ -138,8 +141,26 @@ fail-on = "error"
 ```
 
 Or use the same keys at the top level of `.amagi-staleref.toml`. Keys:
-`include`, `exclude`, `ignore`, `select`, `enable`, `readme` (true or false)
-and `fail-on`.
+`include`, `exclude`, `ignore`, `select`, `enable`, `readme` (true or false),
+`fail-on` and `max-files`.
+
+### Big folders
+
+In a git repo it lists files with `git ls-files`, so it sees what git sees.
+In a folder that is not a git repo (say, a workspace holding many projects)
+it walks the tree and leaves out:
+
+- build and tool folders such as `.git`, `node_modules`, `.venv`, `dist`
+- anything a `.gitignore` covers, in any folder, plus `.git/info/exclude`
+  of each repo inside the tree
+- virtualenvs with any name (a folder with `pyvenv.cfg`), caches tagged with
+  `CACHEDIR.TAG`, and Chrome or Edge profile folders (a folder with
+  `Local State`)
+
+It stops past 100,000 files rather than run for minutes on a home folder;
+`--max-files 0` lifts the limit. When a scan takes more than a couple of
+seconds it prints what it is doing to stderr, which leaves `--format json`
+output clean.
 
 ## Rules
 
@@ -192,7 +213,7 @@ case-exact, even on Windows and macOS, so `makefile` does not match
 ```yaml
 repos:
   - repo: https://github.com/amagilabs/amagi-staleref
-    rev: v0.1.0
+    rev: v0.1.1
     hooks:
       - id: amagi-staleref
 ```

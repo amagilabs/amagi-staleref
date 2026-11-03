@@ -22,11 +22,14 @@ SKILL.md files or agent frontmatter; that is amagi-skill-lint's job.
 amagi-staleref [PATH ...] [--root DIR] [--format text|json|github]
                [--fail-on error|warning|info|never] [--no-readme]
                [--include GLOB] [--exclude GLOB] [--ignore IDS] [--select IDS]
-               [--enable IDS] [--quiet] [--list-rules]
+               [--enable IDS] [--quiet] [--max-files N] [--no-progress]
+               [--list-rules]
 ```
 
 PATH is a repo folder (default: the current folder) or one or more files. When you
 pass files, references are resolved against `--root` (default: the current folder).
+Point it at one project. On a folder with more than 100,000 files it stops with exit
+code 2; pass `--max-files 0` only if the user wants that whole folder scanned.
 
 Examples:
 
