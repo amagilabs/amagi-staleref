@@ -11,6 +11,10 @@ from .discover import find_instruction_files
 from .repo import DEFAULT_MAX_FILES, Repo, TooManyFiles, _load_toml
 from .rules import OPTIONAL, RULES, SEVERITY_ORDER
 
+# A scan is "slow" (and says what it is doing on stderr) past either of these.
+PROGRESS_SECONDS = 2
+PROGRESS_FILES = 20000
+
 
 def load_config(root):
     """[tool.amagi-staleref] in pyproject.toml, or top-level keys in .amagi-staleref.toml."""
@@ -54,7 +58,7 @@ def scan(root, files=None, readme=True, include=(), exclude=(), ignore=(), selec
     targets = files if files is not None else all_instr
     findings, checked = [], 0
     every = set(all_instr) | set(targets)
-    slow = progress and (time.monotonic() - start > 2 or len(repo.files) > 20000)
+    slow = progress and (time.monotonic() - start > PROGRESS_SECONDS or len(repo.files) > PROGRESS_FILES)
     if slow:
         skipped = (f", skipped {len(repo.skipped)} venv/cache/browser-profile folders"
                    if repo.skipped else "")

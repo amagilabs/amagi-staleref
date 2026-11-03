@@ -99,6 +99,22 @@ def expand_braces(pattern):
     return out
 
 
+def _char_mask(s):
+    """One bit per character (folded to 128 bits). Folding only merges
+    characters, which keeps the bound in close_file_name safe."""
+    m = 0
+    for c in s:
+        m |= 1 << (ord(c) & 127)
+    return m
+
+
+try:
+    _popcount = int.bit_count  # Python 3.10+
+except AttributeError:  # pragma: no cover - 3.9 only
+    def _popcount(x):
+        return bin(x).count("1")
+
+
 def close_match(word, pool, cutoff):
     """difflib.get_close_matches(word, pool, n=1, cutoff=cutoff)[0], or None,
     without building a result list. Ties go to the larger string, as in difflib."""
@@ -387,16 +403,26 @@ class Repo:
     @_instance_cache(maxsize=1024)
     def close_file_name(self, name, cutoff=0.85):
         """The file name in the repo closest to `name`, as difflib.get_close_matches
-        would pick it, or None. Only names whose length can reach the cutoff are compared."""
+        would pick it, or None.
+
+        Two exact filters skip names that cannot reach the cutoff before difflib
+        sees them: the length bound (difflib's real_quick_ratio), and a character
+        set bound. A character that is in one name and not the other leaves at
+        least one character unmatched, so matches <= len - (such characters)."""
         if self._names_by_len is None:
             self._names_by_len = {}
             for n in {posixpath.basename(p) for p in self.files}:
-                self._names_by_len.setdefault(len(n), []).append(n)
-        lb = len(name)
+                by_mask = self._names_by_len.setdefault(len(n), {})
+                by_mask.setdefault(_char_mask(n), []).append(n)
+        lb, mb = len(name), _char_mask(name)
         pool = []
-        for la, names in self._names_by_len.items():
-            if la + lb and 2.0 * min(la, lb) / (la + lb) >= cutoff:
-                pool.extend(names)
+        for la, by_mask in self._names_by_len.items():
+            if not la + lb or 2.0 * min(la, lb) / (la + lb) < cutoff:
+                continue
+            need = cutoff * (la + lb) / 2.0  # matches needed
+            for ma, names in by_mask.items():
+                if la - _popcount(ma & ~mb) >= need and lb - _popcount(mb & ~ma) >= need:
+                    pool.extend(names)
         return close_match(name, pool, cutoff)
 
     def suffix_match(self, rel):
