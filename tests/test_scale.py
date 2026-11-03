@@ -12,8 +12,6 @@ from amagi_staleref.checks import FileChecker
 from amagi_staleref.cli import main, scan
 from amagi_staleref.repo import Repo, TooManyFiles, close_match
 
-from conftest import write_tree
-
 
 # ------------------------------------------------------------- listing
 def test_walk_honours_nested_gitignore(make_repo):
@@ -127,7 +125,8 @@ def test_cli_progress_goes_to_stderr_and_can_be_turned_off(make_repo, capsys, mo
 # ------------------------------------------------------------- hints
 def test_close_match_agrees_with_difflib():
     rng = random.Random(7)
-    words = ["".join(rng.choice(string.ascii_lowercase[:6]) for _ in range(rng.randint(3, 9))) for _ in range(400)]
+    letters = string.ascii_lowercase[:6]
+    words = ["".join(rng.choice(letters) for _ in range(rng.randint(3, 9))) for _ in range(400)]
     for word in words[:60]:
         pool = sorted(set(words) - {word})
         for cutoff in (0.6, 0.75, 0.85):
@@ -165,7 +164,8 @@ def test_hints_on_a_large_tree_are_fast_and_right(tmp_path):
     repo = _big_repo(tmp_path, 60000)
     doc = "\n".join(
         [f"See `pkg1/mod1/missing_{i}.py` for details." for i in range(150)]
-        + ["Read [the guide](docs/setup-guid.md).", "Edit `src/app/confg.py`.", "See `docs/setup-guide.mdx`."]
+        + ["Read [the guide](docs/setup-guid.md).", "Edit `src/app/confg.py`.",
+           "See `docs/setup-guide.mdx`."]
     ) + "\n"
     t = time.monotonic()
     checker = FileChecker(repo, "README.md", instruction_files={"README.md"})
@@ -180,7 +180,8 @@ def test_hints_on_a_large_tree_are_fast_and_right(tmp_path):
 
 
 def test_suffix_match_and_children_indexes(make_repo):
-    repo = Repo(make_repo({"a/b/c.py": "", "x/b/c.py": "", "b/c.py": "", "a/bb/c.py": "", "README.md": ""}))
+    repo = Repo(make_repo({"a/b/c.py": "", "x/b/c.py": "", "b/c.py": "", "a/bb/c.py": "",
+                           "README.md": ""}))
     assert sorted(repo.suffix_match("b/c.py")) == ["a/b/c.py", "x/b/c.py"]
     assert repo.children("a") == {"b", "bb"}
     assert repo.children("") == {"a", "x", "b", "README.md"}

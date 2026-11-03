@@ -58,7 +58,8 @@ def scan(root, files=None, readme=True, include=(), exclude=(), ignore=(), selec
     targets = files if files is not None else all_instr
     findings, checked = [], 0
     every = set(all_instr) | set(targets)
-    slow = progress and (time.monotonic() - start > PROGRESS_SECONDS or len(repo.files) > PROGRESS_FILES)
+    slow = progress and (time.monotonic() - start > PROGRESS_SECONDS
+                         or len(repo.files) > PROGRESS_FILES)
     if slow:
         skipped = (f", skipped {len(repo.skipped)} venv/cache/browser-profile folders"
                    if repo.skipped else "")
