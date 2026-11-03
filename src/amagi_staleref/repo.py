@@ -1,12 +1,14 @@
 """What exists in the repo: files, folders, scripts, targets, recipes, tasks, deps."""
 
 import atexit
-import fnmatch
 import json
 import os
 import posixpath
 import re
 import subprocess
+import time
+from concurrent.futures import ThreadPoolExecutor
+from difflib import SequenceMatcher
 from functools import lru_cache, partial, wraps
 
 try:  # Python 3.11+
@@ -32,6 +34,13 @@ TEXT_SKIP_EXTS = {
     ".lockb", ".parquet", ".npy", ".pkl", ".svgz", ".avif", ".heic", ".psd", ".ai", ".sketch",
 }
 MAX_TEXT_BYTES = 2_000_000
+# Stop listing a tree past this many files (0 = no limit). A folder that holds
+# many projects, or a home folder, is not one repo.
+DEFAULT_MAX_FILES = 100_000
+# A folder holding one of these files is not source: a virtualenv of any name
+# (pyvenv.cfg), a cache that says so (CACHEDIR.TAG, https://bford.info/cachedir/),
+# or a Chromium/Chrome/Edge user-data folder ("Local State").
+SKIP_MARKERS = ("pyvenv.cfg", "CACHEDIR.TAG", "Local State")
 ENV_TEMPLATE_SUFFIXES = (".example", ".sample", ".template", ".dist", ".defaults", ".tmpl", ".in")
 WORD_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_]+")
 
@@ -88,6 +97,21 @@ def expand_braces(pattern):
     for alt in m.group(1).split(","):
         out.extend(expand_braces(pattern[:m.start()] + alt + pattern[m.end():]))
     return out
+
+
+def close_match(word, pool, cutoff):
+    """difflib.get_close_matches(word, pool, n=1, cutoff=cutoff)[0], or None,
+    without building a result list. Ties go to the larger string, as in difflib."""
+    best = None
+    s = SequenceMatcher()
+    s.set_seq2(word)
+    for x in pool:
+        s.set_seq1(x)
+        if s.real_quick_ratio() >= cutoff and s.quick_ratio() >= cutoff:
+            r = s.ratio()
+            if r >= cutoff and (best is None or (r, x) > best):
+                best = (r, x)
+    return best[1] if best else None
 
 
 def _run_git(root, args):
@@ -151,19 +175,101 @@ def _instance_cache(maxsize):
     return decorate
 
 
-class Repo:
+class TooManyFiles(Exception):
+    """The tree holds more files than the --max-files limit."""
+
+    def __init__(self, root, limit):
+        super().__init__(f"{root} holds more than {limit:,} files")
+        self.root, self.limit = root, limit
+
+
+class GitIgnore:
+    """The .gitignore rules for a tree that is not a git checkout.
+
+    Supports what most .gitignore files use: one file per folder, `#` comments,
+    `!` negation, a trailing `/` for folders only, a leading or middle `/` to
+    anchor to the file's folder, and `*`, `?`, `[..]`, `**`. Last match wins.
+    """
+
     def __init__(self, root):
+        self.root = root
+        self._rules = {}  # folder -> [(regex, anchored, dir_only, negate)]
+
+    def rules_in(self, rel_dir):
+        if rel_dir not in self._rules:
+            rules = []
+            folder = os.path.join(self.root, *rel_dir.split("/")) if rel_dir else self.root
+            lines = []
+            # .git/info/exclude of a repo nested in the tree, then its .gitignore (which wins).
+            for path in (os.path.join(folder, ".git", "info", "exclude"),
+                         os.path.join(folder, ".gitignore")):
+                try:
+                    with open(path, encoding="utf-8", errors="replace") as fh:
+                        lines += fh.read().splitlines()
+                except OSError:
+                    pass
+            for line in lines:
+                line = line.rstrip()
+                if not line or line.startswith("#"):
+                    continue
+                negate = line.startswith("!")
+                if negate or line.startswith("\\"):
+                    line = line[1:]
+                dir_only = line.endswith("/")
+                line = line.rstrip("/")
+                anchored = "/" in line
+                line = line.lstrip("/")
+                if line:
+                    rules.append((glob_to_regex(line), anchored, dir_only, negate))
+            self._rules[rel_dir] = rules
+        return self._rules[rel_dir]
+
+    def decide(self, rel, is_dir):
+        """True ignored, False re-included, None when no rule matches.
+        Reads only the .gitignore files in the folders above `rel`."""
+        parent = posixpath.dirname(rel)
+        chain = [""]
+        if parent:
+            parts = parent.split("/")
+            chain += ["/".join(parts[:i + 1]) for i in range(len(parts))]
+        for base in reversed(chain):
+            sub = rel[len(base) + 1:] if base else rel
+            for rx, anchored, dir_only, negate in reversed(self.rules_in(base)):
+                if dir_only and not is_dir:
+                    continue
+                if rx.match(sub if anchored else posixpath.basename(sub)):
+                    return not negate
+        return None
+
+    def ignored(self, rel, is_dir):
+        """`rel` or a folder above it is ignored."""
+        parts = rel.split("/")
+        for i in range(1, len(parts) + 1):
+            last = i == len(parts)
+            if self.decide("/".join(parts[:i]), is_dir if last else True):
+                return True
+        return False
+
+
+class Repo:
+    def __init__(self, root, max_files=DEFAULT_MAX_FILES, progress=None):
         self.root = os.path.abspath(root)
         self.files = set()
         self.dirs = {""}
         self.git = False
+        self.skipped = []  # folders left out of the listing because of SKIP_MARKERS
+        self.max_files = max_files or 0
+        self._progress = progress
+        self._gitignore = GitIgnore(self.root)
         self._list_files()
         self._by_name = {}
         for f in self.files:
             self._by_name.setdefault(posixpath.basename(f).lower(), []).append(f)
         self._env = None
         self._ignore_proc = None
-        self._gitignore = None
+        self._exact_names = None
+        self._children = None
+        self._names_by_len = None
 
     # ---------------------------------------------------------------- listing
     def _list_files(self):
@@ -175,13 +281,36 @@ class Repo:
             for rel in out.decode("utf-8", "replace").split("\0"):
                 if rel and rel not in gone:
                     self._add(rel)
+            self._check_limit()
             return
+        start, shown = time.monotonic(), 0
         for dirpath, dirnames, filenames in os.walk(self.root):
-            dirnames[:] = [d for d in dirnames
-                           if d not in SKIP_DIRS and not d.endswith(".egg-info")]
             rel_dir = os.path.relpath(dirpath, self.root).replace("\\", "/")
+            rel_dir = "" if rel_dir == "." else rel_dir
+            prefix = rel_dir + "/" if rel_dir else ""
+            keep = []
+            for d in dirnames:
+                if (d in SKIP_DIRS or d.endswith(".egg-info")
+                        or self._gitignore.ignored(prefix + d, True)):
+                    continue
+                full = os.path.join(dirpath, d)
+                if any(os.path.isfile(os.path.join(full, m)) for m in SKIP_MARKERS):
+                    self.skipped.append(prefix + d)
+                    continue
+                keep.append(d)
+            dirnames[:] = keep
             for name in filenames:
-                self._add(name if rel_dir == "." else rel_dir + "/" + name)
+                # A file named .git marks a worktree; it is not source.
+                if name != ".git" and not self._gitignore.ignored(prefix + name, False):
+                    self._add(prefix + name)
+            self._check_limit()
+            if self._progress and time.monotonic() - start > 2 + shown * 5:
+                shown += 1
+                self._progress(f"listing files: {len(self.files):,} so far ({rel_dir or '.'})")
+
+    def _check_limit(self):
+        if self.max_files and len(self.files) > self.max_files:
+            raise TooManyFiles(self.root, self.max_files)
 
     def _add(self, rel):
         rel = rel.replace("\\", "/")
@@ -235,10 +364,46 @@ class Repo:
     def files_named(self, name):
         return self._by_name.get(name.lower(), [])
 
+    # Indexes built on first use, so a clean repo never pays for them.
+    def _paths_by_exact_name(self):
+        """Case-exact basename -> every file and folder with that name."""
+        if self._exact_names is None:
+            self._exact_names = {}
+            for p in self.files | self.dirs:
+                if p:
+                    self._exact_names.setdefault(posixpath.basename(p), []).append(p)
+        return self._exact_names
+
+    def children(self, rel_dir):
+        """Names of the files and folders directly inside rel_dir ('' = root)."""
+        if self._children is None:
+            self._children = {}
+            for p in self.files | self.dirs:
+                if p:
+                    kids = self._children.setdefault(posixpath.dirname(p), set())
+                    kids.add(posixpath.basename(p))
+        return self._children.get(rel_dir, set())
+
+    @_instance_cache(maxsize=1024)
+    def close_file_name(self, name, cutoff=0.85):
+        """The file name in the repo closest to `name`, as difflib.get_close_matches
+        would pick it, or None. Only names whose length can reach the cutoff are compared."""
+        if self._names_by_len is None:
+            self._names_by_len = {}
+            for n in {posixpath.basename(p) for p in self.files}:
+                self._names_by_len.setdefault(len(n), []).append(n)
+        lb = len(name)
+        pool = []
+        for la, names in self._names_by_len.items():
+            if la + lb and 2.0 * min(la, lb) / (la + lb) >= cutoff:
+                pool.extend(names)
+        return close_match(name, pool, cutoff)
+
     def suffix_match(self, rel):
         rel = norm(rel).rstrip("/")
         tail = "/" + rel
-        return [p for p in self.files | self.dirs if p.endswith(tail)]
+        same = self._paths_by_exact_name().get(posixpath.basename(rel), [])
+        return [p for p in same if p.endswith(tail)]
 
     def glob(self, pattern, base=""):
         """Repo paths matching a glob, relative to base. Patterns without a / match by basename."""
@@ -248,8 +413,9 @@ class Repo:
                 pat = pat[2:]
             if "/" not in pat.rstrip("/"):
                 rx = glob_to_regex(pat)
-                hits.extend(p for p in self.files | self.dirs
-                            if p and rx.match(posixpath.basename(p)))
+                for name, paths in self._paths_by_exact_name().items():
+                    if rx.match(name):
+                        hits.extend(paths)
                 continue
             full = join(base, pat) if not pat.startswith("**") else pat
             rx = glob_to_regex(full)
@@ -289,22 +455,8 @@ class Repo:
         if self.git:
             # "rel/x" catches folder-only patterns such as "build/" for a folder that is not there.
             return any(self._check_ignore(p) for p in (rel, rel + "/x"))
-        if self._gitignore is None:
-            self._gitignore = []
-            try:
-                gitignore = os.path.join(self.root, ".gitignore")
-                with open(gitignore, encoding="utf-8", errors="replace") as f:
-                    for line in f:
-                        line = line.strip()
-                        if line and not line.startswith(("#", "!")):
-                            self._gitignore.append(line.strip("/"))
-            except OSError:
-                pass
-        parts = rel.split("/")
-        for pat in self._gitignore:
-            if fnmatch.fnmatch(rel, pat) or any(fnmatch.fnmatch(p, pat) for p in parts):
-                return True
-        return False
+        # The path may name a folder that is not there, so try it both ways.
+        return self._gitignore.ignored(rel, False) or self._gitignore.ignored(rel, True)
 
     def _check_ignore(self, rel):
         """Ask one long-running `git check-ignore --stdin` instead of starting git per path."""
@@ -635,18 +787,26 @@ class Repo:
         return True
 
     def _env_walk(self, names):
-        for rel in self.files:
-            if os.path.splitext(rel)[1].lower() in TEXT_SKIP_EXTS or self._secret_env(rel):
-                continue
+        def words(rel):
             path = self.abspath(rel)
             try:
                 if os.path.getsize(path) > MAX_TEXT_BYTES:
-                    continue
+                    return rel, ()
                 with open(path, "rb") as f:
                     data = f.read()
             except OSError:
-                continue
+                return rel, ()
             if b"\0" in data[:1024]:
-                continue
-            for word in names.intersection(WORD_RE.findall(data.decode("utf-8", "ignore"))):
-                self._env[word].add(rel)
+                return rel, ()
+            return rel, names.intersection(WORD_RE.findall(data.decode("utf-8", "ignore")))
+
+        todo = [rel for rel in self.files
+                if os.path.splitext(rel)[1].lower() not in TEXT_SKIP_EXTS
+                and not self._secret_env(rel)]
+        # Opening a file is slow on Windows (antivirus) and on network drives, so read in parallel.
+        with ThreadPoolExecutor(max_workers=8) as pool:
+            for i, (rel, hits) in enumerate(pool.map(words, todo, chunksize=64), 1):
+                for word in hits:
+                    self._env[word].add(rel)
+                if self._progress and i % 20000 == 0:
+                    self._progress(f"searching env var names: {i:,}/{len(todo):,} files")

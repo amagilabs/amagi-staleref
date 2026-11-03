@@ -3,11 +3,12 @@
 import argparse
 import os
 import sys
+import time
 
 from . import __version__, report
 from .checks import FileChecker
 from .discover import find_instruction_files
-from .repo import Repo, _load_toml
+from .repo import DEFAULT_MAX_FILES, Repo, TooManyFiles, _load_toml
 from .rules import OPTIONAL, RULES, SEVERITY_ORDER
 
 
@@ -30,10 +31,18 @@ def _ids(value):
     return {v.strip().upper() for v in value if v.strip()}
 
 
-def scan(root, files=None, readme=True, include=(), exclude=(), ignore=(), select=(), enable=()):
-    """Scan one repo root. Returns a result dict for the reporters."""
-    repo = Repo(root)
-    cfg = load_config(repo.root)
+def scan(root, files=None, readme=True, include=(), exclude=(), ignore=(), select=(), enable=(),
+         max_files=None, progress=None):
+    """Scan one repo root. Returns a result dict for the reporters.
+
+    Raises TooManyFiles when the tree holds more than max_files files
+    (default DEFAULT_MAX_FILES, or max-files in the config; 0 = no limit).
+    progress, if given, is called with a short status line on slow scans."""
+    start = time.monotonic()
+    cfg = load_config(os.path.abspath(root))
+    if max_files is None:
+        max_files = cfg.get("max-files", DEFAULT_MAX_FILES)
+    repo = Repo(root, max_files=max_files, progress=progress)
     include = list(include) + list(cfg.get("include", []))
     exclude = list(exclude) + list(cfg.get("exclude", []))
     ignore = _ids(ignore) | _ids(cfg.get("ignore"))
@@ -45,11 +54,22 @@ def scan(root, files=None, readme=True, include=(), exclude=(), ignore=(), selec
     targets = files if files is not None else all_instr
     findings, checked = [], 0
     every = set(all_instr) | set(targets)
-    checkers = []
-    for rel in targets:
+    slow = progress and (time.monotonic() - start > 2 or len(repo.files) > 20000)
+    if slow:
+        skipped = (f", skipped {len(repo.skipped)} venv/cache/browser-profile folders"
+                   if repo.skipped else "")
+        progress(f"listed {len(repo.files):,} files in {time.monotonic() - start:.1f}s{skipped}; "
+                 f"checking {len(targets)} instruction files")
+    checkers, last = [], time.monotonic()
+    for i, rel in enumerate(targets, 1):
         checker = FileChecker(repo, rel, instruction_files=every)
         checker.run(repo.read_text(rel), finish=False)
         checkers.append(checker)
+        if progress and time.monotonic() - last > 5:
+            last = time.monotonic()
+            progress(f"checked {i}/{len(targets)} files ({rel})")
+    if slow:
+        progress("searching the repo for env var names")
     repo.prefetch_env({n for c in checkers for _, n in c.env_refs})
     for checker in checkers:
         for f in checker.finish():
@@ -86,9 +106,18 @@ def build_parser():
     p.add_argument("--enable", default="", metavar="IDS",
                    help="turn on rules that are off by default (SR002)")
     p.add_argument("--quiet", action="store_true", help="print nothing when nothing is stale")
+    p.add_argument("--max-files", type=int, default=None, metavar="N",
+                   help=f"stop if a folder holds more than N files "
+                        f"(default {DEFAULT_MAX_FILES:,}; 0 = no limit)")
+    p.add_argument("--no-progress", action="store_true",
+                   help="do not print progress lines to stderr on slow scans")
     p.add_argument("--list-rules", action="store_true", help="print every rule and exit")
     p.add_argument("--version", action="version", version=f"amagi-staleref {__version__}")
     return p
+
+
+def _progress(msg):
+    print(f"amagi-staleref: {msg}", file=sys.stderr, flush=True)
 
 
 def main(argv=None):
@@ -111,20 +140,28 @@ def main(argv=None):
 
     results = []
     common = dict(readme=not args.no_readme, include=args.include, exclude=args.exclude,
-                  ignore=args.ignore, select=args.select, enable=args.enable)
-    for d in dirs:
-        results.append(scan(d, **common))
-    if files:
-        root = os.path.abspath(args.root or ".")
-        rels = []
-        for f in files:
-            rel = os.path.relpath(os.path.abspath(f), root).replace("\\", "/")
-            if rel.startswith(".."):
-                print(f"amagi-staleref: {f} is outside the root {root}; pass --root",
-                      file=sys.stderr)
-                return 2
-            rels.append(rel)
-        results.append(scan(root, files=rels, **common))
+                  ignore=args.ignore, select=args.select, enable=args.enable,
+                  max_files=args.max_files,
+                  progress=None if args.no_progress or args.quiet else _progress)
+    try:
+        for d in dirs:
+            results.append(scan(d, **common))
+        if files:
+            root = os.path.abspath(args.root or ".")
+            rels = []
+            for f in files:
+                rel = os.path.relpath(os.path.abspath(f), root).replace("\\", "/")
+                if rel.startswith(".."):
+                    print(f"amagi-staleref: {f} is outside the root {root}; pass --root",
+                          file=sys.stderr)
+                    return 2
+                rels.append(rel)
+            results.append(scan(root, files=rels, **common))
+    except TooManyFiles as e:
+        print(f"amagi-staleref: {e.root} holds more than {e.limit:,} files. Is it one repo? "
+              f"Point it at a single project folder, or pass --max-files 0 to scan it anyway.",
+              file=sys.stderr)
+        return 2
 
     merged = {"files": [], "findings": [], "checked": 0, "roots_without_files": []}
     for r, d in zip(results, dirs + (["."] if files else [])):

@@ -7,7 +7,7 @@ from dataclasses import dataclass
 from urllib.parse import unquote
 
 from . import markdown, shell
-from .repo import canon, join, norm
+from .repo import canon, close_match, join, norm
 from .rules import severity_of
 
 # ------------------------------------------------------------------ path shape
@@ -435,19 +435,15 @@ class FileChecker:
             if not self.repo.is_dir(parent):
                 continue
             prefix = parent + "/" if parent else ""
-            siblings = sorted({p[len(prefix):].split("/")[0]
-                               for p in self.repo.files | self.repo.dirs
-                               if p.startswith(prefix) and p != parent})
-            close = difflib.get_close_matches(base, siblings, n=1, cutoff=0.75)
+            close = close_match(base, self.repo.children(parent), 0.75)
             if close:
-                return f"; did you mean {prefix}{close[0]}?"
+                return f"; did you mean {prefix}{close}?"
         same = sorted(self.repo.files_named(base), key=len)
         if same:
             return f"; a file with that name is at {same[0]}"
-        names = {posixpath.basename(p) for p in self.repo.files}
-        close = difflib.get_close_matches(base, sorted(names), n=1, cutoff=0.85)
+        close = self.repo.close_file_name(base)
         if close:
-            hit = sorted(self.repo.files_named(close[0]), key=len)[0]
+            hit = sorted(self.repo.files_named(close), key=len)[0]
             return f"; did you mean {hit}?"
         return ""
 
